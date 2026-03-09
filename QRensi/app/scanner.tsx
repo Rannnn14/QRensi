@@ -5,7 +5,7 @@ import { CameraView, useCameraPermissions } from "expo-camera";
 import { useState } from "react";
 import { supabase } from "../lib/supabase";
 
-export default function Fitur4() {
+export default function Scanner() {
 
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
