@@ -11,7 +11,7 @@ import {
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
 import { useEffect, useState, useCallback } from "react"
-import { supabase } from "../lib/supabase"
+import { supabase } from "../../lib/supabase"
 
 export default function Daftar_akun(){
 

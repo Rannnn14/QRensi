@@ -9,7 +9,7 @@ import {
   Alert
 } from "react-native";
 
-import { supabase } from "../lib/supabase";
+import { supabase } from "../../lib/supabase";
 import QRCode from "react-native-qrcode-svg";
 
 import * as MediaLibrary from "expo-media-library";

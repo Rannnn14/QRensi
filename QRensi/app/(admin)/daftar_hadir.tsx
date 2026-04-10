@@ -9,7 +9,7 @@ import {
   Alert
 } from "react-native"
 import { useEffect, useState, useCallback } from "react"
-import { supabase } from "../lib/supabase"
+import { supabase } from "../../lib/supabase"
 import { Ionicons } from "@expo/vector-icons"
 import { router } from "expo-router"
 

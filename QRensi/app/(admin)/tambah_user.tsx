@@ -10,7 +10,7 @@ import {
 } from "react-native"
 
 import { useState, useCallback } from "react"
-import { supabaseAdmin } from "../lib/supabaseAdmin"
+import { supabaseAdmin } from "../../lib/supabaseAdmin"
 import { router } from "expo-router"
 import { Picker } from "@react-native-picker/picker"
 import { Ionicons } from '@expo/vector-icons'

@@ -11,7 +11,7 @@ import {
   ScrollView
 } from "react-native";
 import { router } from "expo-router";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../../lib/supabase";
 import { Ionicons } from '@expo/vector-icons';
 
 export default function Login() {
@@ -43,16 +43,14 @@ export default function Login() {
         {/* BAGIAN HEADER DENGAN LOGO */}
         <View style={styles.headerContainer}>
           <View style={styles.logoWrapper}>
-            {/* TEMPAT LOGO ANDA - Ganti path sesuai file Anda */}
             <Image 
-              source={require("../assets/images/react-logo.png")} 
+              source={require("../../assets/images/react-logo.png")} 
               style={styles.logo}
               resizeMode="contain"
             />
-            <Text style={styles.brandName}>MOFINOW</Text>
+            <Text style={styles.brandName}>QRensi</Text>
           </View>
           
-          {/* Efek Gelombang Putih di Bawah Biru */}
           <View style={styles.waveDecorator} />
         </View>
 
@@ -91,16 +89,7 @@ export default function Login() {
 
           {error ? <Text style={styles.errorText}>{error}</Text> : null}
 
-          <View style={styles.rowBetween}>
-            <View style={styles.rememberMe}>
-              <View style={styles.checkbox} />
-              <Text style={styles.subText}>Remember me</Text>
-            </View>
-            <TouchableOpacity>
-              <Text style={styles.subText}>Forget password?</Text>
-            </TouchableOpacity>
-          </View>
-
+          {/* LOGIN BUTTON */}
           <TouchableOpacity style={styles.loginButton} onPress={handleLogin}>
             <Text style={styles.loginButtonText}>Login</Text>
           </TouchableOpacity>
@@ -117,7 +106,7 @@ const styles = StyleSheet.create({
   },
   headerContainer: {
     height: 320,
-    backgroundColor: "#3A86FF", // Warna biru utama
+    backgroundColor: "#3A86FF",
     justifyContent: "center",
     alignItems: "center",
     position: 'relative',
@@ -145,7 +134,7 @@ const styles = StyleSheet.create({
     right: 0,
     height: 100,
     backgroundColor: '#fff',
-    borderTopLeftRadius: 100, // Membuat efek lengkungan/gelombang
+    borderTopLeftRadius: 100,
     transform: [{ scaleX: 1.5 }],
   },
   formContainer: {
@@ -169,7 +158,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 25,
     height: 60,
     marginBottom: 20,
-    // Shadow halus untuk input
     elevation: 2,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 1 },
@@ -180,29 +168,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: "#333",
     height: '100%',
-  },
-  rowBetween: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: 40,
-    paddingHorizontal: 5,
-  },
-  rememberMe: {
-    flexDirection: "row",
-    alignItems: "center",
-  },
-  checkbox: {
-    width: 18,
-    height: 18,
-    borderRadius: 9,
-    borderWidth: 1.5,
-    borderColor: "#7B61FF",
-    marginRight: 8,
-  },
-  subText: {
-    fontSize: 13,
-    color: "#999",
   },
   loginButton: {
     height: 55,

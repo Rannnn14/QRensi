@@ -9,7 +9,7 @@ import {
   ScrollView,
   RefreshControl
 } from "react-native";
-import { supabase } from "../lib/supabase";
+import { supabase } from "../../lib/supabase";
 
 type Pengajuan = {
   id: string;
