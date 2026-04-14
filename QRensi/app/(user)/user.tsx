@@ -1,205 +1,589 @@
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  TouchableOpacity,
-  Dimensions,
-  ScrollView,
-  RefreshControl
-} from "react-native"
-
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl } from "react-native"
 import { useEffect, useState } from "react"
 import { supabase } from "../../lib/supabase"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
+import { SafeAreaView } from "react-native-safe-area-context"
+import { UserBottomNav } from "../../components/user-bottom-nav"
+import { getLocalDateValue } from "../../lib/date"
+import { prepareNotifications, sendLocalNotification } from "../../lib/notifications"
 
-const { width } = Dimensions.get("window")
+type ProfileState = {
+  name: string
+  kelas: string
+}
+
+type AttendanceState = {
+  status: string
+  waktu: string
+}
+
+const quickActions = [
+  {
+    title: "Riwayat Kehadiran",
+    description: "Lihat catatan presensi sebelumnya",
+    icon: "time-outline" as const,
+    action: () => router.push("/riwayat_kehadiran" as any),
+  },
+  {
+    title: "Ajukan Izin",
+    description: "Laporkan ketidakhadiran",
+    icon: "document-text-outline" as const,
+    action: () => router.push("/ajuan" as any),
+  },
+  {
+    title: "Lihat Kode QR",
+    description: "Unduh kartu untuk cetak",
+    icon: "qr-code-outline" as const,
+    action: () => router.push("/generate_qr" as any),
+  },
+  {
+    title: "Status Kehadiran",
+    description: "Lihat hasil hari ini",
+    icon: "checkmark-done-outline" as const,
+    action: () => router.push("/status_kehadiran" as any),
+  },
+]
 
 export default function User() {
+  const [profile, setProfile] = useState<ProfileState>({ name: "", kelas: "-" })
+  const [attendance, setAttendance] = useState<AttendanceState>({ status: "Belum Absen", waktu: "--:--" })
+  const [refreshing, setRefreshing] = useState(false)
+  const [userNotice, setUserNotice] = useState("Belum ada notifikasi kehadiran baru.")
+  const [hasUnreadNotice, setHasUnreadNotice] = useState(false)
 
-  const [name,setName] = useState("User")
-  const [refreshing,setRefreshing] = useState(false)
+  useEffect(() => {
+    prepareNotifications()
+    let profileChannel: any = null
+    let attendanceChannel: any = null
 
-  useEffect(()=>{
-    let channel: any = null
-
-    const initUser = async () => {
+    const loadDashboard = async () => {
       const { data } = await supabase.auth.getUser()
       const user = data?.user
-      if(user?.email){
-        const username = user.email.split("@")[0]
-        setName(username)
+      if (!user) return
+
+      const fallbackName = user.email ? user.email.split("@")[0] : "User"
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("nama, kelas")
+        .eq("id", user.id)
+        .single()
+
+      setProfile({
+        name: profileData?.nama || fallbackName,
+        kelas: profileData?.kelas || "-",
+      })
+
+      const today = getLocalDateValue()
+      const { data: attendanceData } = await supabase
+        .from("absensi")
+        .select("status, created_at")
+        .eq("user_id", user.id)
+        .eq("tanggal", today)
+        .single()
+
+      setAttendance({
+        status: attendanceData?.status || "Belum Absen",
+        waktu: attendanceData?.created_at
+          ? new Date(attendanceData.created_at).toLocaleTimeString("id-ID", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "--:--",
+      })
+
+      if (attendanceData?.status) {
+        setUserNotice(`Status kehadiran hari ini: ${attendanceData.status}.`)
       }
 
-      if(user){
-        channel = supabase
-          .channel("realtime-user-" + user.id)
-          .on(
-            "postgres_changes",
-            { event: "*", schema: "public", table: "profiles", filter: `id=eq.${user.id}` },
-            (payload: { new?: { nama?: string } }) => {
-              if(payload.new?.nama){
-                setName(payload.new.nama)
-              }
-            }
-          )
-          .subscribe()
-      }
+      profileChannel = supabase
+        .channel("realtime-user-" + user.id)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "profiles", filter: `id=eq.${user.id}` },
+          (payload: { new?: { nama?: string; kelas?: string } }) => {
+            setProfile((prev) => ({
+              name: payload.new?.nama || prev.name,
+              kelas: payload.new?.kelas || prev.kelas,
+            }))
+          }
+        )
+        .subscribe()
+
+      attendanceChannel = supabase
+        .channel("realtime-attendance-" + user.id)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "absensi", filter: `user_id=eq.${user.id}` },
+          (payload: { new?: { status?: string; created_at?: string; tanggal?: string } }) => {
+            if (payload.new?.tanggal !== getLocalDateValue()) return
+
+            const latestTime = payload.new?.created_at
+              ? new Date(payload.new.created_at).toLocaleTimeString("id-ID", {
+                  hour: "2-digit",
+                  minute: "2-digit",
+                })
+              : "--:--"
+
+            setAttendance({
+              status: payload.new?.status || "Belum Absen",
+              waktu: latestTime,
+            })
+            setUserNotice(`Kehadiran diperbarui: ${payload.new?.status || "Belum Absen"} pada ${latestTime}.`)
+            setHasUnreadNotice(true)
+            sendLocalNotification(
+              "Update kehadiran",
+              `Status kamu sekarang ${payload.new?.status || "Belum Absen"} pada ${latestTime}.`
+            )
+          }
+        )
+        .subscribe()
     }
 
-    initUser()
+    loadDashboard()
 
     return () => {
-      if(channel) supabase.removeChannel(channel)
+      if (profileChannel) supabase.removeChannel(profileChannel)
+      if (attendanceChannel) supabase.removeChannel(attendanceChannel)
     }
-  },[])
+  }, [])
 
   const onRefresh = async () => {
     setRefreshing(true)
     const { data } = await supabase.auth.getUser()
     const user = data?.user
-    if(user?.email){
-      const username = user.email.split("@")[0]
-      setName(username)
+    if (user) {
+      const fallbackName = user.email ? user.email.split("@")[0] : "User"
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("nama, kelas")
+        .eq("id", user.id)
+        .single()
+
+      setProfile({
+        name: profileData?.nama || fallbackName,
+        kelas: profileData?.kelas || "-",
+      })
+
+      const today = getLocalDateValue()
+      const { data: attendanceData } = await supabase
+        .from("absensi")
+        .select("status, created_at")
+        .eq("user_id", user.id)
+        .eq("tanggal", today)
+        .single()
+
+      setAttendance({
+        status: attendanceData?.status || "Belum Absen",
+        waktu: attendanceData?.created_at
+          ? new Date(attendanceData.created_at).toLocaleTimeString("id-ID", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : "--:--",
+      })
+
+      setUserNotice(
+        attendanceData?.status
+          ? `Status kehadiran hari ini: ${attendanceData.status}.`
+          : "Belum ada notifikasi kehadiran baru."
+      )
     }
     setRefreshing(false)
   }
 
-  return(
-    <ScrollView 
-      contentContainerStyle={styles.container}
-      refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh}/>}
-    >
+  const normalizedStatus = attendance.status.toLowerCase()
 
-      {/* HEADER */}
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
+  const statusColor =
+    normalizedStatus === "hadir"
+      ? "#1e8c5d"
+      : normalizedStatus === "izin" || normalizedStatus === "sakit"
+        ? "#ba7412"
+        : "#22405f"
+
+  return (
+    <SafeAreaView edges={["top"]} style={styles.screen}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.topRow}>
           <View>
-            <Text style={styles.appName}>QRensi</Text>
-            <Text style={styles.userName}>Halo, {name}</Text>
+            <Text style={styles.brand}>QRensi</Text>
+            <Text style={styles.subtitle}>Student dashboard</Text>
           </View>
 
-          <TouchableOpacity onPress={async ()=>{
-            await supabase.auth.signOut()
-            router.replace("/login")
-          }} style={styles.logoutBtn}>
-            <Ionicons name="log-out-outline" size={22} color="#FF4D4F"/>
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => {
+                setHasUnreadNotice(false)
+                router.push("/status_kehadiran" as any)
+              }}
+            >
+              <Ionicons name="notifications-outline" size={18} color="#22405f" />
+              {hasUnreadNotice ? <View style={styles.notificationDot} /> : null}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconButton} onPress={onRefresh} disabled={refreshing}>
+              <Ionicons
+                name={refreshing ? "hourglass-outline" : "refresh-outline"}
+                size={18}
+                color="#22405f"
+              />
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={async () => {
+                await supabase.auth.signOut()
+                router.replace("/login")
+              }}
+              style={styles.logoutBtn}
+            >
+              <Ionicons name="log-out-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.logoutText}>Keluar</Text>
+            </TouchableOpacity>
+          </View>
         </View>
-      </View>
 
-      {/* MENU */}
-      <View style={styles.menuGrid}>
+        <View style={styles.profileCard}>
+          <View>
+            <Text style={styles.mutedLabel}>Profil Siswa</Text>
+            <Text style={styles.profileName}>{profile.name}</Text>
+            <Text style={styles.profileMeta}>Kelas {profile.kelas}</Text>
+          </View>
+          <View style={styles.statusBadge}>
+            <Text style={styles.statusBadgeText}>Aktif</Text>
+          </View>
+        </View>
 
-        <MenuIcon
-          title="Status Kehadiran"
-          icon="checkmark-done"
-          color="#3A86FF"
-          onPress={()=>router.push("/status_kehadiran" as any)}
-        />
+        <TouchableOpacity
+          style={styles.noticeCard}
+          onPress={() => {
+            setHasUnreadNotice(false)
+            router.push("/status_kehadiran" as any)
+          }}
+        >
+          <View style={styles.noticeIconWrap}>
+            <Ionicons name="notifications-outline" size={18} color="#16324f" />
+          </View>
+          <View style={styles.noticeCopy}>
+            <Text style={styles.noticeTitle}>Notifikasi siswa</Text>
+            <Text style={styles.noticeText}>{userNotice}</Text>
+          </View>
+        </TouchableOpacity>
 
-        <MenuIcon
-          title="Riwayat Kehadiran"
-          icon="time"
-          color="#8338EC"
-          onPress={()=>router.push("/riwayat_kehadiran" as any)}
-        />
+        <TouchableOpacity
+          style={styles.heroCard}
+          onPress={() => router.push("/status_kehadiran" as any)}
+        >
+          <View style={styles.heroTop}>
+            <Text style={styles.heroLabel}>Kehadiran hari ini</Text>
+            <Text style={styles.heroTime}>
+              {attendance.waktu === "--:--" ? "Belum check-in" : `Check-in ${attendance.waktu}`}
+            </Text>
+          </View>
+          <View style={styles.heroStatusPill}>
+            <Text style={styles.heroStatusText}>{attendance.status}</Text>
+          </View>
+          <Text style={styles.heroHelper}>
+            Ringkasan status kehadiran tampil otomatis dan terhubung real-time.
+          </Text>
+        </TouchableOpacity>
 
-        <MenuIcon
-          title="Ajuan"
-          icon="document-text"
-          color="#06D6A0"
-          onPress={()=>router.push("/ajuan" as any)}
-        />
+        <View style={styles.quickSection}>
+          <Text style={styles.sectionLabel}>Akses cepat</Text>
+          <View style={styles.quickGrid}>
+            {quickActions.map((item) => (
+              <TouchableOpacity
+                key={item.title}
+                style={styles.quickCard}
+                onPress={item.action}
+              >
+                <View style={styles.quickIconWrap}>
+                  <Ionicons name={item.icon} size={18} color="#22405f" />
+                </View>
+                <Text style={styles.quickTitle}>{item.title}</Text>
+                <Text style={styles.quickDescription}>{item.description}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </View>
 
-        <MenuIcon
-          title="Generate QR"
-          icon="qr-code"
-          color="#FF6B6B"
-          onPress={()=>router.push("/generate_qr" as any)}
-        />
+        <View style={styles.detailCard}>
+          <Text style={styles.detailTitle}>Ringkasan Hari Ini</Text>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Status</Text>
+            <Text style={[styles.detailValue, { color: statusColor }]}>{attendance.status}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Kelas</Text>
+            <Text style={styles.detailValue}>{profile.kelas}</Text>
+          </View>
+          <View style={styles.detailRow}>
+            <Text style={styles.detailLabel}>Metode</Text>
+            <Text style={styles.detailValue}>Scan QR</Text>
+          </View>
+        </View>
 
-      </View>
-    </ScrollView>
+      </ScrollView>
+      <UserBottomNav activeKey="user" />
+    </SafeAreaView>
   )
 }
 
-const MenuIcon = ({title,icon,color,onPress}:any)=>( 
-  <TouchableOpacity style={styles.menuItem} onPress={onPress}>
-    <View style={[styles.iconBox,{backgroundColor:color}]}>
-      <Ionicons name={icon} size={26} color="#fff"/>
-    </View>
-    <Text style={styles.menuTitle}>{title}</Text>
-  </TouchableOpacity>
-)
-
 const styles = StyleSheet.create({
-  container:{
-    flexGrow:1,
-    backgroundColor:"#F4F6FB",
-    paddingBottom:20
+  screen: {
+    flex: 1,
+    backgroundColor: "#f4f7fb",
   },
-  header:{
-    backgroundColor:"#3A86FF",
-    paddingTop:60,
-    paddingHorizontal:25,
-    paddingBottom:35,
-    borderBottomLeftRadius:30,
-    borderBottomRightRadius:30
+  content: {
+    flex: 1,
   },
-  headerTop:{
-    flexDirection:"row",
-    justifyContent:"space-between",
-    alignItems:"center"
+  contentContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 28,
   },
-  appName:{
-    color:"#fff",
-    fontSize:22,
-    fontWeight:"bold"
+  topRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 14,
   },
-  userName:{
-    color:"#EAF2FF",
-    fontSize:14,
-    marginTop:3
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
-  logoutBtn:{
-    width:42,
-    height:42,
-    backgroundColor:"#fff",
-    borderRadius:21,
-    justifyContent:"center",
-    alignItems:"center"
+  brand: {
+    fontSize: 30,
+    fontWeight: "800",
+    color: "#11263c",
   },
-  menuGrid:{
-    flexDirection:"row",
-    flexWrap:"wrap",
-    justifyContent:"space-between",
-    padding:20,
-    marginTop:20
+  subtitle: {
+    marginTop: 4,
+    fontSize: 13,
+    color: "#6d7e90",
   },
-  menuItem:{
-    backgroundColor:"#fff",
-    width:(width-60)/2,
-    height:130,
-    borderRadius:18,
-    padding:20,
-    marginBottom:20,
-    justifyContent:"center",
-    alignItems:"center",
-    elevation:3
+  iconButton: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: "#dbe7f4",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
   },
-  iconBox:{
-    width:55,
-    height:55,
-    borderRadius:16,
-    justifyContent:"center",
-    alignItems:"center",
-    marginBottom:12
+  notificationDot: {
+    position: "absolute",
+    top: 7,
+    right: 8,
+    width: 10,
+    height: 10,
+    borderRadius: 999,
+    backgroundColor: "#ef4444",
   },
-  menuTitle:{
-    fontSize:14,
-    fontWeight:"600",
-    color:"#333",
-    textAlign:"center"
-  }
+  logoutBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#16324f",
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 14,
+  },
+  logoutText: {
+    color: "#FFFFFF",
+    fontWeight: "700",
+  },
+  profileCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 18,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    borderWidth: 1,
+    borderColor: "#e2eaf2",
+  },
+  noticeCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 16,
+    marginTop: 16,
+    borderWidth: 1,
+    borderColor: "#e2eaf2",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  noticeIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: "#eaf2fb",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  noticeCopy: {
+    flex: 1,
+  },
+  noticeTitle: {
+    color: "#11263c",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  noticeText: {
+    marginTop: 4,
+    color: "#6d7e90",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  mutedLabel: {
+    fontSize: 12,
+    color: "#7e8e9e",
+    marginBottom: 6,
+  },
+  profileName: {
+    fontSize: 23,
+    fontWeight: "800",
+    color: "#11263c",
+  },
+  profileMeta: {
+    marginTop: 4,
+    color: "#6b7a89",
+    fontSize: 13,
+  },
+  statusBadge: {
+    backgroundColor: "#dbe7f4",
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 999,
+  },
+  statusBadgeText: {
+    color: "#16324f",
+    fontWeight: "700",
+    fontSize: 12,
+  },
+  heroCard: {
+    backgroundColor: "#16324f",
+    borderRadius: 24,
+    padding: 18,
+    minHeight: 160,
+    justifyContent: "space-between",
+    marginTop: 16,
+  },
+  heroTop: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 14,
+    gap: 10,
+  },
+  heroLabel: {
+    color: "#c9d8e8",
+    fontSize: 13,
+    fontWeight: "600",
+  },
+  heroTime: {
+    color: "#b2c6db",
+    fontSize: 12,
+    textAlign: "right",
+  },
+  heroStatusPill: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 999,
+    backgroundColor: "#284b70",
+  },
+  heroStatusText: {
+    color: "#FFFFFF",
+    fontSize: 18,
+    fontWeight: "800",
+    textTransform: "capitalize",
+  },
+  heroHelper: {
+    marginTop: 12,
+    color: "#bdd0e2",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  quickSection: {
+    marginTop: 18,
+  },
+  sectionLabel: {
+    color: "#6d7e90",
+    fontSize: 12,
+    fontWeight: "700",
+    marginBottom: 10,
+    textTransform: "uppercase",
+    letterSpacing: 0.8,
+  },
+  quickGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  quickCard: {
+    width: "48.5%",
+    backgroundColor: "#FFFFFF",
+    borderRadius: 22,
+    padding: 16,
+    minHeight: 132,
+    borderWidth: 1,
+    borderColor: "#e2eaf2",
+  },
+  quickIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#e4eef8",
+    marginBottom: 12,
+  },
+  quickTitle: {
+    color: "#11263c",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  quickDescription: {
+    color: "#6b7a89",
+    lineHeight: 17,
+    fontSize: 12,
+    marginTop: 6,
+  },
+  detailCard: {
+    backgroundColor: "#FFFFFF",
+    borderRadius: 24,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: "#e2eaf2",
+    marginTop: 18,
+  },
+  detailTitle: {
+    fontSize: 18,
+    fontWeight: "800",
+    color: "#11263c",
+    marginBottom: 12,
+  },
+  detailRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: "#e8edf3",
+  },
+  detailLabel: {
+    color: "#6d7e90",
+  },
+  detailValue: {
+    color: "#11263c",
+    fontWeight: "700",
+    textTransform: "capitalize",
+  },
 })

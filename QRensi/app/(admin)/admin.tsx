@@ -1,59 +1,98 @@
-import { 
-  View, 
-  Text, 
-  StyleSheet, 
-  ScrollView, 
-  TouchableOpacity,
-  Dimensions,
-  RefreshControl
-} from "react-native"
-import { router } from "expo-router"
-import { supabase } from "../../lib/supabase"
 import { Ionicons } from "@expo/vector-icons"
+import { router } from "expo-router"
 import { useEffect, useState } from "react"
+import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native"
+import { SafeAreaView } from "react-native-safe-area-context"
+import { AdminBottomNav } from "../../components/admin-bottom-nav"
+import { supabase } from "../../lib/supabase"
+import { prepareNotifications, sendLocalNotification } from "../../lib/notifications"
 
-const { width } = Dimensions.get("window")
+const adminActions = [
+  {
+    title: "Tambah User",
+    description: "Buat akun siswa baru",
+    icon: "person-add-outline" as const,
+    action: () => router.push("/tambah_user"),
+  },
+  {
+    title: "Daftar Akun",
+    description: "Cek akun aktif per kelas",
+    icon: "people-outline" as const,
+    action: () => router.push("/daftar_akun"),
+  },
+  {
+    title: "Daftar Hadir",
+    description: "Pantau absensi harian",
+    icon: "clipboard-outline" as const,
+    action: () => router.push("/daftar_hadir" as any),
+  },
+  {
+    title: "Pengajuan",
+    description: "Review izin dan sakit",
+    icon: "document-text-outline" as const,
+    action: () => router.push("/pengajuan" as any),
+  },
+]
 
 export default function Admin() {
-
+  const [counts, setCounts] = useState({
+    users: 0,
+    pengajuan: 0,
+    attendance: 0,
+  })
   const [refreshing, setRefreshing] = useState(false)
+  const [adminNotice, setAdminNotice] = useState("Belum ada notifikasi baru.")
 
   const logout = async () => {
     await supabase.auth.signOut()
     router.replace("/login")
   }
 
-  // --- FETCH DATA SUPABASE (REMAIN IN BACKGROUND) ---
   const fetchCounts = async () => {
-    // Hanya untuk update internal (realtime listener), tidak ditampilkan
-    await supabase.from("users").select("*", { count: "exact", head: true })
-    await supabase.from("pengajuan").select("*", { count: "exact", head: true })
-    await supabase.from("daftar_hadir").select("*", { count: "exact", head: true })
+    const [usersResult, submissionResult, attendanceResult] = await Promise.all([
+      supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "user"),
+      supabase.from("pengajuan").select("*", { count: "exact", head: true }),
+      supabase.from("absensi").select("*", { count: "exact", head: true }),
+    ])
+
+    setCounts({
+      users: usersResult.count || 0,
+      pengajuan: submissionResult.count || 0,
+      attendance: attendanceResult.count || 0,
+    })
+
+    const pendingSubmissions = submissionResult.count || 0
+    setAdminNotice(
+      pendingSubmissions > 0
+        ? `${pendingSubmissions} pengajuan sedang menunggu review admin.`
+        : "Belum ada pengajuan baru yang perlu dicek."
+    )
   }
 
-  // --- REALTIME SUBSCRIPTIONS ---
   useEffect(() => {
-    fetchCounts() // initial fetch
+    prepareNotifications()
+    fetchCounts()
 
     const userSub = supabase
-      .channel("public:users")
-      .on("postgres_changes", { event: "*", schema: "public", table: "users" }, () => {
-        fetchCounts()
-      })
+      .channel("public:profiles")
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, fetchCounts)
       .subscribe()
 
     const submissionSub = supabase
       .channel("public:pengajuan")
-      .on("postgres_changes", { event: "*", schema: "public", table: "pengajuan" }, () => {
+      .on("postgres_changes", { event: "*", schema: "public", table: "pengajuan" }, (payload) => {
+        if (payload.eventType === "INSERT") {
+          setAdminNotice("Ada pengajuan baru masuk. Silakan cek halaman pengajuan.")
+          sendLocalNotification("Pengajuan baru", "Ada pengajuan baru yang masuk ke panel admin.")
+        }
+
         fetchCounts()
       })
       .subscribe()
 
     const attendanceSub = supabase
-      .channel("public:daftar_hadir")
-      .on("postgres_changes", { event: "*", schema: "public", table: "daftar_hadir" }, () => {
-        fetchCounts()
-      })
+      .channel("public:absensi")
+      .on("postgres_changes", { event: "*", schema: "public", table: "absensi" }, fetchCounts)
       .subscribe()
 
     return () => {
@@ -63,7 +102,6 @@ export default function Admin() {
     }
   }, [])
 
-  // Fungsi refresh manual (pull-to-refresh)
   const onRefresh = async () => {
     setRefreshing(true)
     await fetchCounts()
@@ -71,177 +109,384 @@ export default function Admin() {
   }
 
   return (
-    <View style={styles.container}>
-
-      {/* HEADER */}
-      <View style={styles.header}>
-        <View style={styles.headerContent}>
-          <View>
-            <Text style={styles.appName}>QRensi</Text>
-            <Text style={styles.adminRole}>Admin Dashboard</Text>
+    <SafeAreaView edges={["top"]} style={styles.screen}>
+      <ScrollView
+        style={styles.content}
+        contentContainerStyle={styles.contentContainer}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        showsVerticalScrollIndicator={false}
+      >
+        <View style={styles.header}>
+          <View style={styles.headerCopy}>
+            <Text style={styles.brand}>QRensi</Text>
+            <Text style={styles.subtitle}>Admin control center</Text>
           </View>
 
-          <TouchableOpacity onPress={logout} style={styles.logoutCircle}>
-            <Ionicons name="log-out-outline" size={22} color="#FF4D4F"/>
-          </TouchableOpacity>
+          <View style={styles.headerActions}>
+            <TouchableOpacity
+              style={styles.iconButton}
+              onPress={() => router.push("/pengajuan" as any)}
+            >
+              <Ionicons name="notifications-outline" size={18} color="#22405f" />
+              {counts.pengajuan > 0 ? (
+                <View style={styles.notificationBadge}>
+                  <Text style={styles.notificationBadgeText}>{counts.pengajuan > 9 ? "9+" : counts.pengajuan}</Text>
+                </View>
+              ) : null}
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.iconButton} onPress={onRefresh} disabled={refreshing}>
+              <Ionicons
+                name={refreshing ? "hourglass-outline" : "refresh-outline"}
+                size={18}
+                color="#22405f"
+              />
+            </TouchableOpacity>
+            <TouchableOpacity onPress={logout} style={styles.logoutButton}>
+              <Ionicons name="log-out-outline" size={18} color="#FFFFFF" />
+              <Text style={styles.logoutText}>Keluar</Text>
+            </TouchableOpacity>
+          </View>
         </View>
 
-        <Text style={styles.welcomeText}>
-          Kelola sistem absensi dengan mudah
-        </Text>
-      </View>
+        <View style={styles.heroCard}>
+          <View style={styles.heroBadge}>
+            <Text style={styles.heroBadgeText}>Dasbor utama</Text>
+          </View>
+          <Text style={styles.heroTitle}>
+            Kelola akun, absensi, dan pengajuan dengan tampilan penuh yang nyaman di layar HP.
+          </Text>
+          <Text style={styles.heroCaption}>
+            Semua data tetap realtime. Menu cepat di bawah memudahkan akses ke seluruh fitur admin.
+          </Text>
+        </View>
 
-      {/* MENU */}
-      <ScrollView
-        contentContainerStyle={styles.scrollContent}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
+        <TouchableOpacity style={styles.noticeCard} onPress={() => router.push("/pengajuan" as any)}>
+          <View style={styles.noticeIconWrap}>
+            <Ionicons name="notifications-outline" size={18} color="#16324f" />
+          </View>
+          <View style={styles.noticeCopy}>
+            <Text style={styles.noticeTitle}>Notifikasi admin</Text>
+            <Text style={styles.noticeText}>{adminNotice}</Text>
+          </View>
+        </TouchableOpacity>
+
+        <View style={styles.statsRow}>
+          <StatCard label="Siswa" value={counts.users} icon="people-outline" />
+          <StatCard label="Pengajuan" value={counts.pengajuan} icon="document-text-outline" />
+          <StatCard label="Absensi" value={counts.attendance} icon="clipboard-outline" />
+        </View>
+
+        <View style={styles.sectionHeader}>
+          <Text style={styles.sectionLabel}>Menu cepat</Text>
+          <Text style={styles.sectionHint}>Akses utama admin</Text>
+        </View>
+
         <View style={styles.menuGrid}>
-          <MenuIcon
-            title="Tambah User"
-            icon="person-add"
-            color="#3A86FF"
-            onPress={() => router.push("/tambah_user")}
-          />
-
-          <MenuIcon
-            title="Daftar Akun"
-            icon="people"
-            color="#8338EC"
-            onPress={() => router.push("/daftar_akun")}
-          />
-
-          <MenuIcon
-            title="Daftar Hadir"
-            icon="clipboard"
-            color="#FB5607"
-            onPress={() => router.push("/daftar_hadir" as any)}
-          />
-
-          <MenuIcon
-            title="Pengajuan"
-            icon="document-text"
-            color="#06D6A0"
-            onPress={() => router.push("/pengajuan" as any)}
-          />
+          {adminActions.map((item) => (
+            <TouchableOpacity key={item.title} style={styles.menuItem} onPress={item.action}>
+              <View style={styles.iconBox}>
+                <Ionicons name={item.icon} size={20} color="#22405f" />
+              </View>
+              <Text style={styles.menuTitle}>{item.title}</Text>
+              <Text style={styles.menuSubtitle}>{item.description}</Text>
+            </TouchableOpacity>
+          ))}
         </View>
+
+        <TouchableOpacity style={styles.scanCard} onPress={() => router.push("/scanner" as any)}>
+          <View style={styles.scanCopy}>
+            <Text style={styles.scanEyebrow}>Aksi cepat</Text>
+            <Text style={styles.scanTitle}>Buka scanner QR</Text>
+            <Text style={styles.scanText}>Lakukan check-in siswa langsung dari panel admin.</Text>
+          </View>
+          <View style={styles.scanIcon}>
+            <Ionicons name="scan-outline" size={28} color="#FFFFFF" />
+          </View>
+        </TouchableOpacity>
       </ScrollView>
 
-      {/* FLOATING SCANNER BUTTON */}
-      <TouchableOpacity
-        style={styles.scanButton}
-        onPress={() => router.push("/scanner" as any)}
-      >
-        <Ionicons name="qr-code" size={32} color="#fff"/>
-      </TouchableOpacity>
-    </View>
+      <AdminBottomNav activeKey="admin" />
+    </SafeAreaView>
   )
 }
 
-const MenuIcon = ({ title, icon, color, onPress }: any) => (
-  <TouchableOpacity style={styles.menuItem} onPress={onPress}>
-    <View style={[styles.iconBox,{backgroundColor: color}]}>
-      <Ionicons name={icon} size={26} color="#fff"/>
+const StatCard = ({
+  label,
+  value,
+  icon,
+}: {
+  label: string
+  value: number
+  icon: keyof typeof Ionicons.glyphMap
+}) => (
+  <View style={styles.statCard}>
+    <View style={styles.statIcon}>
+      <Ionicons name={icon} size={18} color="#22405f" />
     </View>
-    <Text style={styles.menuTitle}>{title}</Text>
-  </TouchableOpacity>
+    <Text style={styles.statValue}>{value}</Text>
+    <Text style={styles.statLabel}>{label}</Text>
+  </View>
 )
 
 const styles = StyleSheet.create({
-  container:{
-    flex:1,
-    backgroundColor:"#F1F4F9"
+  screen: {
+    flex: 1,
+    backgroundColor: "#f4f7fb",
   },
-  header:{
-    backgroundColor:"#3A86FF",
-    paddingTop:60,
-    paddingHorizontal:25,
-    paddingBottom:40,
-    borderBottomLeftRadius:35,
-    borderBottomRightRadius:35
+  content: {
+    flex: 1,
   },
-  headerContent:{
-    flexDirection:"row",
-    justifyContent:"space-between",
-    alignItems:"center"
+  contentContainer: {
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 28,
   },
-  appName:{
-    color:"#fff",
-    fontSize:26,
-    fontWeight:"bold",
-    letterSpacing:1
+  header: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+    marginBottom: 18,
   },
-  adminRole:{
-    color:"#E8F1FF",
-    fontSize:14
+  headerCopy: {
+    flex: 1,
   },
-  welcomeText:{
-    marginTop:15,
-    color:"#EAF2FF",
-    fontSize:13
+  brand: {
+    color: "#11263c",
+    fontSize: 30,
+    fontWeight: "800",
   },
-  logoutCircle:{
-    width:42,
-    height:42,
-    backgroundColor:"#fff",
-    borderRadius:21,
-    justifyContent:"center",
-    alignItems:"center"
+  subtitle: {
+    color: "#6d7e90",
+    fontSize: 13,
+    marginTop: 4,
   },
-  scrollContent:{
-    padding:22,
-    paddingTop:30
+  headerActions: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 10,
   },
-  menuGrid:{
-    flexDirection:"row",
-    flexWrap:"wrap",
-    justifyContent:"space-between"
+  iconButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 14,
+    backgroundColor: "#dbe7f4",
+    justifyContent: "center",
+    alignItems: "center",
+    position: "relative",
   },
-  menuItem:{
-    backgroundColor:"#fff",
-    width:(width-60)/2,
-    height:130,
-    borderRadius:20,
-    padding:20,
-    marginBottom:20,
-    justifyContent:"center",
-    alignItems:"center",
-    shadowColor:"#000",
-    shadowOpacity:0.05,
-    shadowRadius:10,
-    shadowOffset:{width:0,height:4},
-    elevation:3
+  notificationBadge: {
+    position: "absolute",
+    top: -4,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 999,
+    backgroundColor: "#ef4444",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingHorizontal: 4,
   },
-  iconBox:{
-    width:55,
-    height:55,
-    borderRadius:16,
-    justifyContent:"center",
-    alignItems:"center",
-    marginBottom:12
+  notificationBadgeText: {
+    color: "#ffffff",
+    fontSize: 10,
+    fontWeight: "800",
   },
-  menuTitle:{
-    fontSize:14,
-    fontWeight:"600",
-    color:"#333",
-    textAlign:"center"
+  logoutButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: "#16324f",
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    paddingVertical: 12,
   },
-  scanButton:{
-    position:"absolute",
-    bottom:30,
-    alignSelf:"center",
-    width:70,
-    height:70,
-    borderRadius:40,
-    backgroundColor:"#3A86FF",
-    justifyContent:"center",
-    alignItems:"center",
-    shadowColor:"#3A86FF",
-    shadowOpacity:0.4,
-    shadowRadius:10,
-    shadowOffset:{width:0,height:4},
-    elevation:8
-  }
+  logoutText: {
+    color: "#ffffff",
+    fontWeight: "700",
+  },
+  heroCard: {
+    backgroundColor: "#16324f",
+    borderRadius: 28,
+    padding: 20,
+    marginBottom: 16,
+  },
+  heroBadge: {
+    alignSelf: "flex-start",
+    backgroundColor: "#284b70",
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+  },
+  heroBadgeText: {
+    color: "#d7e6f5",
+    fontSize: 12,
+    fontWeight: "700",
+  },
+  heroTitle: {
+    marginTop: 14,
+    color: "#ffffff",
+    fontSize: 24,
+    fontWeight: "800",
+    lineHeight: 31,
+  },
+  heroCaption: {
+    marginTop: 10,
+    color: "#bfd1e4",
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  noticeCard: {
+    backgroundColor: "#ffffff",
+    borderRadius: 22,
+    padding: 16,
+    marginBottom: 16,
+    borderWidth: 1,
+    borderColor: "#e2eaf2",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 12,
+  },
+  noticeIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 14,
+    backgroundColor: "#eaf2fb",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  noticeCopy: {
+    flex: 1,
+  },
+  noticeTitle: {
+    color: "#11263c",
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  noticeText: {
+    marginTop: 4,
+    color: "#6d7e90",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  statsRow: {
+    flexDirection: "row",
+    gap: 10,
+    marginBottom: 18,
+  },
+  statCard: {
+    flex: 1,
+    backgroundColor: "#ffffff",
+    borderRadius: 22,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: "#e2eaf2",
+  },
+  statIcon: {
+    width: 34,
+    height: 34,
+    borderRadius: 12,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#e4eef8",
+  },
+  statValue: {
+    color: "#11263c",
+    fontSize: 24,
+    fontWeight: "800",
+    marginTop: 14,
+  },
+  statLabel: {
+    color: "#6d7e90",
+    fontSize: 12,
+    fontWeight: "600",
+    marginTop: 4,
+  },
+  sectionHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 10,
+  },
+  sectionLabel: {
+    color: "#11263c",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  sectionHint: {
+    color: "#6d7e90",
+    fontSize: 12,
+  },
+  menuGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    justifyContent: "space-between",
+    gap: 10,
+  },
+  menuItem: {
+    width: "48.5%",
+    borderRadius: 22,
+    padding: 16,
+    backgroundColor: "#ffffff",
+    borderWidth: 1,
+    borderColor: "#e2eaf2",
+    minHeight: 140,
+  },
+  iconBox: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#e4eef8",
+    marginBottom: 14,
+  },
+  menuTitle: {
+    fontSize: 16,
+    fontWeight: "800",
+    color: "#11263c",
+  },
+  menuSubtitle: {
+    color: "#6b7a89",
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 8,
+  },
+  scanCard: {
+    marginTop: 16,
+    backgroundColor: "#dbe7f4",
+    borderRadius: 24,
+    padding: 18,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    gap: 12,
+  },
+  scanCopy: {
+    flex: 1,
+  },
+  scanEyebrow: {
+    color: "#56708a",
+    fontSize: 12,
+    marginBottom: 6,
+  },
+  scanTitle: {
+    color: "#11263c",
+    fontSize: 21,
+    fontWeight: "800",
+    marginBottom: 4,
+  },
+  scanText: {
+    color: "#5f7388",
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  scanIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 18,
+    backgroundColor: "#16324f",
+    justifyContent: "center",
+    alignItems: "center",
+  },
 })

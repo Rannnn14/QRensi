@@ -1,9 +1,12 @@
 import { View, Text, StyleSheet, TouchableOpacity } from "react-native";
-import { router } from "expo-router";
 import { Ionicons } from "@expo/vector-icons";
 import { CameraView, useCameraPermissions } from "expo-camera";
 import { useState } from "react";
 import { supabase } from "../../lib/supabase";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { AdminBottomNav } from "../../components/admin-bottom-nav";
+import { useFeatureBack } from "../../hooks/use-feature-back";
+import { getLocalDateValue } from "../../lib/date";
 
 export default function Scanner() {
 
@@ -11,18 +14,21 @@ export default function Scanner() {
   const [scanned, setScanned] = useState(false);
   const [statusText, setStatusText] = useState("");
   const [statusColor, setStatusColor] = useState("");
+  const handleBack = useFeatureBack({ fallbackRoute: "/admin" });
 
   if (!permission) return <View />;
 
   if (!permission.granted) {
     return (
-      <View style={styles.center}>
+      <View style={styles.permissionScreen}>
+        <View style={styles.permissionCard}>
         <Ionicons name="camera-outline" size={80} color="#4C6EF5" />
         <Text style={styles.permissionText}>Akses kamera diperlukan</Text>
 
         <TouchableOpacity style={styles.button} onPress={requestPermission}>
           <Text style={styles.buttonText}>Izinkan Kamera</Text>
         </TouchableOpacity>
+        </View>
       </View>
     );
   }
@@ -45,7 +51,7 @@ export default function Scanner() {
       return;
     }
 
-    const today = new Date().toISOString().split("T")[0];
+    const today = getLocalDateValue();
 
     const { data: cek } = await supabase
       .from("absensi")
@@ -80,137 +86,171 @@ export default function Scanner() {
   };
 
   return (
-    <View style={styles.container}>
+    <SafeAreaView edges={["top"]} style={styles.screen}>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+            <Ionicons name="arrow-back" size={18} color="#6D3BFF" />
+          </TouchableOpacity>
 
-      {/* HEADER */}
-
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()}>
-          <Ionicons name="arrow-back" size={24} />
-        </TouchableOpacity>
-
-        <Text style={styles.title}>Scan QR Absensi</Text>
-      </View>
-
-      {/* CAMERA */}
-
-      <View style={styles.cameraContainer}>
-
-        <CameraView
-          style={styles.camera}
-          barcodeScannerSettings={{
-            barcodeTypes: ["qr"]
-          }}
-          onBarcodeScanned={scanned ? undefined : handleScan}
-        />
-
-        {/* FRAME SCAN */}
-
-        <View style={styles.scanFrame} />
-
-      </View>
-
-      {/* STATUS */}
-
-      {statusText !== "" && (
-        <View style={[styles.statusBox, { backgroundColor: statusColor }]}>
-          <Text style={styles.statusText}>{statusText}</Text>
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.eyebrow}>Pemindaian cepat</Text>
+            <Text style={styles.title}>Scan QR Absensi</Text>
+          </View>
         </View>
-      )}
 
-      {/* BUTTON */}
+        <View style={styles.infoCard}>
+          <Text style={styles.infoTitle}>Arahkan kamera ke kartu QR siswa</Text>
+          <Text style={styles.infoText}>Sistem akan membaca kode dan langsung mencatat kehadiran bila data valid.</Text>
+        </View>
 
-      {scanned && (
-        <TouchableOpacity
-          style={styles.button}
-          onPress={() => {
-            setScanned(false);
-            setStatusText("");
-          }}
-        >
-          <Text style={styles.buttonText}>Scan Lagi</Text>
-        </TouchableOpacity>
-      )}
+        <View style={styles.cameraContainer}>
+          <CameraView
+            style={styles.camera}
+            barcodeScannerSettings={{
+              barcodeTypes: ["qr"]
+            }}
+            onBarcodeScanned={scanned ? undefined : handleScan}
+          />
+          <View style={styles.scanFrame} />
+        </View>
 
-    </View>
+        {statusText !== "" && (
+          <View style={[styles.statusBox, { backgroundColor: statusColor }]}>
+            <Text style={styles.statusText}>{statusText}</Text>
+          </View>
+        )}
+
+        {scanned && (
+          <TouchableOpacity
+            style={styles.button}
+            onPress={() => {
+              setScanned(false);
+              setStatusText("");
+            }}
+          >
+            <Text style={styles.buttonText}>Scan Lagi</Text>
+          </TouchableOpacity>
+        )}
+
+      </View>
+      <AdminBottomNav activeKey="scanner" />
+    </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-
+screen:{
+flex:1,
+backgroundColor:"#f4f7fb"
+},
 container:{
 flex:1,
-backgroundColor:"#F8F9FE"
+backgroundColor:"#f4f7fb",
+paddingHorizontal:16,
+paddingTop:12,
+paddingBottom:16
 },
-
 header:{
 flexDirection:"row",
 alignItems:"center",
-padding:20
+marginBottom:16
 },
-
-title:{
-fontSize:18,
-fontWeight:"bold",
-marginLeft:10
-},
-
-cameraContainer:{
-flex:1,
+backButton:{
+width:40,
+height:40,
+borderRadius:14,
+backgroundColor:"#dbe7f4",
 justifyContent:"center",
 alignItems:"center"
 },
-
+headerTextWrap:{
+marginLeft:12
+},
+eyebrow:{
+fontSize:12,
+color:"#6d7e90",
+marginBottom:4
+},
+title:{
+fontSize:24,
+fontWeight:"800",
+color:"#11263c"
+},
+infoCard:{
+backgroundColor:"#16324f",
+borderRadius:24,
+padding:16,
+marginBottom:16
+},
+infoTitle:{
+color:"#ffffff",
+fontSize:15,
+fontWeight:"800"
+},
+infoText:{
+marginTop:6,
+color:"#c7d8e9",
+fontSize:12,
+lineHeight:18
+},
+cameraContainer:{
+flex:1,
+justifyContent:"center",
+alignItems:"center",
+overflow:"hidden",
+borderRadius:26
+},
 camera:{
 width:"100%",
-height:"100%"
+height:"100%",
+borderRadius:26
 },
-
 scanFrame:{
 position:"absolute",
 width:250,
 height:250,
 borderWidth:3,
-borderColor:"#4C6EF5",
-borderRadius:20
+borderColor:"#dbe7f4",
+borderRadius:24
 },
-
 statusBox:{
 padding:15,
-margin:20,
-borderRadius:12,
+marginTop:16,
+borderRadius:16,
 alignItems:"center"
 },
-
 statusText:{
 color:"#fff",
 fontWeight:"bold",
 fontSize:16
 },
-
 button:{
-backgroundColor:"#4C6EF5",
+backgroundColor:"#16324f",
 padding:15,
-marginHorizontal:20,
-marginBottom:30,
-borderRadius:12,
+marginTop:16,
+borderRadius:16,
 alignItems:"center"
 },
-
 buttonText:{
 color:"#fff",
 fontWeight:"bold"
 },
-
-center:{
+permissionScreen:{
 flex:1,
-justifyContent:"center",
+backgroundColor:"#0f1720",
+padding:20,
+justifyContent:"center"
+},
+permissionCard:{
+backgroundColor:"#f4f7fb",
+borderRadius:32,
+padding:24,
 alignItems:"center"
 },
-
 permissionText:{
 fontSize:16,
-marginVertical:20
+marginVertical:20,
+color:"#11263c"
 }
-
 });

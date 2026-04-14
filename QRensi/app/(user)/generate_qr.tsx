@@ -6,14 +6,18 @@ import {
   ActivityIndicator,
   ScrollView,
   TouchableOpacity,
-  Alert
+  Alert,
+  Platform,
 } from "react-native";
 
 import { supabase } from "../../lib/supabase";
 import QRCode from "react-native-qrcode-svg";
-
-import * as MediaLibrary from "expo-media-library";
+import { Ionicons } from "@expo/vector-icons";
+import { SafeAreaView } from "react-native-safe-area-context";
+import { UserBottomNav } from "../../components/user-bottom-nav";
 import ViewShot from "react-native-view-shot";
+import { useFeatureBack } from "../../hooks/use-feature-back";
+import { saveImageToGallery } from "../../lib/device-files";
 
 type Profile = {
   id: string;
@@ -25,9 +29,10 @@ export default function GenerateQR() {
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [loading, setLoading] = useState(true);
-  const [qrReady, setQrReady] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   const viewShotRef = useRef<ViewShot | null>(null);
+  const handleBack = useFeatureBack({ fallbackRoute: "/user" });
 
   // ======================
   // FETCH PROFILE
@@ -62,27 +67,36 @@ export default function GenerateQR() {
     }
 
     try {
-      const permission = await MediaLibrary.requestPermissionsAsync();
-      if (!permission.granted) {
-        Alert.alert("Izin galeri ditolak");
-        return;
-      }
+      setDownloading(true);
 
-      // capture QR card
       const uri = await viewShotRef.current.capture?.();
       if (!uri) {
         Alert.alert("Gagal mengambil QR");
         return;
       }
 
-      // simpan langsung ke galeri
-      await MediaLibrary.createAssetAsync(uri);
+      if (Platform.OS === "web") {
+        const response = await fetch(uri);
+        const blob = await response.blob();
+        const url = URL.createObjectURL(blob);
+        const anchor = document.createElement("a");
+        anchor.href = url;
+        anchor.download = `qr_${profile?.nama?.replace(/\s+/g, "_").toLowerCase() || "siswa"}.png`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        document.body.removeChild(anchor);
+        URL.revokeObjectURL(url);
+      } else {
+        await saveImageToGallery(uri);
+      }
 
-      Alert.alert("Berhasil", "QR berhasil disimpan ke galeri");
+      Alert.alert("Berhasil", "QR berhasil disimpan ke galeri.");
 
     } catch (err) {
       console.log(err);
       Alert.alert("Gagal menyimpan QR");
+    } finally {
+      setDownloading(false);
     }
   };
 
@@ -137,30 +151,52 @@ export default function GenerateQR() {
   // UI
   // ======================
   return (
-    <ScrollView contentContainerStyle={styles.container}>
-      <ViewShot
-        ref={viewShotRef}
-        options={{ format: "png", quality: 1 }}
-        onCapture={() => setQrReady(true)}
-      >
-        <View style={styles.card}>
-          <Text style={styles.title}>KARTU QR SISWA</Text>
-          <Text style={styles.name}>{profile.nama}</Text>
-          <Text style={styles.kelas}>{profile.kelas}</Text>
-          <View style={styles.qrBox}>
-            <QRCode value={profile.id} size={200} />
+    <SafeAreaView edges={["top"]} style={styles.screen}>
+      <ScrollView style={styles.scroll} contentContainerStyle={styles.container} showsVerticalScrollIndicator={false}>
+        <View style={styles.shell}>
+        <View style={styles.headerRow}>
+          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
+            <Ionicons name="arrow-back" size={18} color="#6D3BFF" />
+          </TouchableOpacity>
+          <View style={styles.headerTextWrap}>
+            <Text style={styles.eyebrow}>Kartu QR siswa</Text>
+            <Text style={styles.pageTitle}>Kode QR</Text>
           </View>
         </View>
-      </ViewShot>
 
-      <TouchableOpacity
-        style={[styles.button, !qrReady && { opacity: 0.5 }]}
-        onPress={downloadQR}
-        disabled={!qrReady}
-      >
-        <Text style={styles.buttonText}>Download QR + Nama + Kelas</Text>
-      </TouchableOpacity>
-    </ScrollView>
+        <View style={styles.infoCard}>
+          <Text style={styles.infoTitle}>Kartu digital siswa</Text>
+          <Text style={styles.infoText}>QR ini dapat disimpan ke galeri lalu dicetak untuk proses pemindaian harian.</Text>
+        </View>
+
+        <ViewShot
+          ref={viewShotRef}
+          options={{ format: "png", quality: 1 }}
+        >
+          <View style={styles.card}>
+            <Text style={styles.title}>KARTU QR SISWA</Text>
+            <Text style={styles.name}>{profile.nama}</Text>
+            <Text style={styles.kelas}>{profile.kelas}</Text>
+            <View style={styles.qrBox}>
+              <QRCode value={profile.id} size={200} />
+            </View>
+            <Text style={styles.caption}>Cetak QR ini dan simpan di holder kartu siswa untuk pemindaian harian.</Text>
+          </View>
+        </ViewShot>
+
+        <View style={styles.buttonRow}>
+          <TouchableOpacity
+            style={[styles.button, downloading && { opacity: 0.5 }]}
+            onPress={downloadQR}
+            disabled={downloading}
+          >
+            <Text style={styles.buttonText}>{downloading ? "Mengunduh..." : "Unduh QR"}</Text>
+          </TouchableOpacity>
+        </View>
+        </View>
+      </ScrollView>
+      <UserBottomNav activeKey="generate_qr" />
+    </SafeAreaView>
   );
 }
 
@@ -168,31 +204,94 @@ export default function GenerateQR() {
 // STYLE
 // ======================
 const styles = StyleSheet.create({
+  screen: {
+    flex: 1,
+    backgroundColor: "#f4f7fb"
+  },
+  scroll: {
+    flex: 1,
+  },
   container: {
-    flexGrow: 1,
+    paddingHorizontal: 16,
+    paddingTop: 12,
+    paddingBottom: 28,
+  },
+  shell: {
+    paddingBottom: 8,
+  },
+  headerRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 18,
+  },
+  backButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 14,
+    backgroundColor: "#dbe7f4",
     justifyContent: "center",
     alignItems: "center",
-    padding: 20,
-    backgroundColor: "#f1f5f9"
+  },
+  headerTextWrap: {
+    marginLeft: 12,
+  },
+  eyebrow: {
+    color: "#6d7e90",
+    fontSize: 12,
+    marginBottom: 4,
+  },
+  pageTitle: {
+    fontSize: 26,
+    fontWeight: "800",
+    color: "#11263c",
+  },
+  infoCard: {
+    backgroundColor: "#16324f",
+    borderRadius: 24,
+    padding: 16,
+    marginBottom: 18,
+  },
+  infoTitle: {
+    color: "#ffffff",
+    fontSize: 15,
+    fontWeight: "800",
+  },
+  infoText: {
+    marginTop: 6,
+    color: "#c7d8e9",
+    fontSize: 12,
+    lineHeight: 18,
   },
   card: {
     backgroundColor: "#ffffff",
-    borderRadius: 20,
+    borderRadius: 26,
     padding: 25,
     alignItems: "center",
-    width: 300,
-    elevation: 6
+    width: "100%",
+    borderWidth: 1,
+    borderColor: "#e2eaf2",
   },
-  title: { fontSize: 16, fontWeight: "bold", marginBottom: 10 },
-  name: { fontSize: 20, fontWeight: "bold" },
-  kelas: { fontSize: 14, color: "#555", marginBottom: 15 },
-  qrBox: { padding: 10, backgroundColor: "#fff", borderRadius: 10 },
+  title: { fontSize: 16, fontWeight: "bold", marginBottom: 10, color: "#11263c" },
+  name: { fontSize: 20, fontWeight: "bold", color: "#11263c" },
+  kelas: { fontSize: 14, color: "#6d7e90", marginBottom: 15 },
+  qrBox: { padding: 14, backgroundColor: "#fff", borderRadius: 18 },
+  caption: {
+    marginTop: 14,
+    textAlign: "center",
+    color: "#7A6F6F",
+    lineHeight: 18,
+    fontSize: 12,
+  },
+  buttonRow: {
+    marginTop: 18,
+    flexDirection: "row",
+    justifyContent: "center",
+  },
   button: {
-    marginTop: 25,
-    backgroundColor: "#2563eb",
+    backgroundColor: "#16324f",
     paddingVertical: 12,
     paddingHorizontal: 30,
-    borderRadius: 10
+    borderRadius: 16
   },
   buttonText: { color: "#fff", fontWeight: "bold", fontSize: 15 },
   empty: { flex: 1, justifyContent: "center", alignItems: "center" }

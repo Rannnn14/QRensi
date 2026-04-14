@@ -10,27 +10,20 @@ export default function Index() {
   }, [])
 
   const check = async () => {
-
     const { data: sessionData } = await supabase.auth.getSession()
-    console.log("SESSION:", sessionData)
 
     if (!sessionData.session) {
-      console.log("TIDAK ADA SESSION")
       router.replace("/login")
       return
     }
 
     const userId = sessionData.session.user.id
-    console.log("USER ID:", userId)
 
-    const { data: profile, error } = await supabase
+    const { data: profile } = await supabase
       .from("profiles")
       .select("*")
       .eq("id", userId)
       .single()
-
-    console.log("PROFILE:", profile)
-    console.log("ERROR:", error)
 
     if (!profile) {
       router.replace("/login")
