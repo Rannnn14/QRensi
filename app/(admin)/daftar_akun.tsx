@@ -1,0 +1,660 @@
+import {
+  View,
+  Text,
+  StyleSheet,
+  TouchableOpacity,
+  ScrollView,
+  ActivityIndicator,
+  RefreshControl,
+  Alert,
+  Modal,
+  TextInput,
+} from "react-native"
+import { Ionicons } from "@expo/vector-icons"
+import { useEffect, useState, useCallback } from "react"
+import { Picker } from "@react-native-picker/picker"
+import { supabase } from "../../lib/supabase"
+import { supabaseAdmin } from "../../lib/supabaseAdmin"
+import { AdminBottomNav } from "../../components/admin-bottom-nav"
+import { useFeatureBack } from "../../hooks/use-feature-back"
+import { AppTheme } from "../../constants/theme"
+import { InfoCard } from "../../components/ui/info-card"
+import { ModalCard } from "../../components/ui/modal-card"
+import { PageHeader } from "../../components/ui/page-header"
+import { ScreenShell } from "../../components/ui/screen-shell"
+import { SectionHeader } from "../../components/ui/section-header"
+import {
+  compareStudentNames,
+  isStudentNameVerySimilar,
+  matchesStudentSearch,
+  normalizeStudentName,
+} from "../../lib/student"
+
+type Profile = {
+  id: string
+  nama: string
+  kelas: string
+  role?: string
+}
+
+export default function DaftarAkun() {
+  const [profiles, setProfiles] = useState<Profile[]>([])
+  const [loading, setLoading] = useState(true)
+  const [selectedClass, setSelectedClass] = useState<string | null>(null)
+  const [refreshing, setRefreshing] = useState(false)
+  const [editModalVisible, setEditModalVisible] = useState(false)
+  const [editingUser, setEditingUser] = useState<Profile | null>(null)
+  const [editNama, setEditNama] = useState("")
+  const [editKelas, setEditKelas] = useState("7 Banin")
+  const [searchQuery, setSearchQuery] = useState("")
+  const [processingAction, setProcessingAction] = useState<"edit" | "delete" | "reset" | null>(null)
+  const handleBack = useFeatureBack({
+    fallbackRoute: "/admin",
+    beforeBack: () => {
+      if (editModalVisible) {
+        closeEditModal()
+        return true
+      }
+
+      return false
+    },
+  })
+
+  const classes = ["7 Banin", "7 Banat", "8 Banin", "8 Banat", "9 Banin", "9 Banat"]
+
+  const getProfiles = useCallback(async () => {
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("role", "user")
+      .order("nama", { ascending: true })
+
+    if (error) {
+      console.log(error)
+    }
+
+    if (data) {
+      setProfiles(
+        [...data].sort((a, b) => compareStudentNames(a.nama, b.nama))
+      )
+    }
+
+    setLoading(false)
+  }, [])
+
+  useEffect(() => {
+    let realtimeChannel: any
+
+    const setupRealtime = async () => {
+      await getProfiles()
+      realtimeChannel = supabase
+        .channel("public:profiles")
+        .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
+          getProfiles()
+        })
+        .subscribe()
+    }
+
+    setupRealtime()
+
+    return () => {
+      if (realtimeChannel) supabase.removeChannel(realtimeChannel)
+    }
+  }, [getProfiles])
+
+  const siswa = profiles
+    .filter((user) => user.kelas === selectedClass)
+    .filter((user) => !searchQuery.trim() || matchesStudentSearch(user.nama || "", searchQuery))
+    .sort((a, b) => compareStudentNames(a.nama, b.nama))
+
+  const onRefresh = async () => {
+    setRefreshing(true)
+    await getProfiles()
+    setRefreshing(false)
+  }
+
+  const openEditModal = (user: Profile) => {
+    setEditingUser(user)
+    setEditNama(normalizeStudentName(user.nama))
+    setEditKelas(user.kelas)
+    setEditModalVisible(true)
+  }
+
+  const closeEditModal = () => {
+    setEditModalVisible(false)
+    setEditingUser(null)
+    setEditNama("")
+    setEditKelas("7 Banin")
+  }
+
+  const getExactDuplicateUser = (namaValue: string, excludeId?: string) => {
+    const normalized = normalizeStudentName(namaValue)
+    return profiles.find(
+      (item) => item.id !== excludeId && normalizeStudentName(item.nama || "") === normalized
+    )
+  }
+
+  const getSimilarDuplicateUser = (namaValue: string, excludeId?: string) => {
+    const normalized = normalizeStudentName(namaValue)
+    return profiles.find(
+      (item) =>
+        item.id !== excludeId &&
+        normalizeStudentName(item.nama || "") !== normalized &&
+        isStudentNameVerySimilar(item.nama || "", normalized)
+    )
+  }
+
+  const saveUserUpdate = async (skipDuplicateWarning = false) => {
+    if (!editingUser) return
+
+    const namaBaru = normalizeStudentName(editNama)
+    if (!namaBaru || !editKelas) {
+      Alert.alert("Error", "Nama dan kelas wajib diisi")
+      return
+    }
+
+    const exactDuplicate = getExactDuplicateUser(namaBaru, editingUser.id)
+    const similarDuplicate = getSimilarDuplicateUser(namaBaru, editingUser.id)
+
+    if (exactDuplicate && !skipDuplicateWarning) {
+      Alert.alert(
+        "Nama Sudah Terdaftar",
+        `${namaBaru} sudah terdaftar. Apakah ingin tetap melanjutkan edit data?`,
+        [
+          { text: "Batal", style: "cancel" },
+          { text: "Lanjut", onPress: () => saveUserUpdate(true) },
+        ]
+      )
+      return
+    }
+
+    if (similarDuplicate && !skipDuplicateWarning) {
+      Alert.alert(
+        "Nama Mirip Terdeteksi",
+        `Nama ${namaBaru} sangat mirip dengan ${normalizeStudentName(
+          similarDuplicate.nama || ""
+        )}. Periksa lagi agar tidak tertukar.`,
+        [
+          { text: "Batal", style: "cancel" },
+          { text: "Lanjut", onPress: () => saveUserUpdate(true) },
+        ]
+      )
+      return
+    }
+
+    try {
+      setProcessingAction("edit")
+
+      await supabaseAdmin
+        .from("profiles")
+        .update({ nama: namaBaru, kelas: editKelas })
+        .eq("id", editingUser.id)
+        .throwOnError()
+
+      const syncResults = await Promise.allSettled([
+        (async () => {
+          const { error } = await supabaseAdmin.auth.admin.updateUserById(editingUser.id, {
+            user_metadata: {
+              full_name: namaBaru,
+              class_name: editKelas,
+            },
+          })
+
+          if (error) {
+            throw error
+          }
+        })(),
+        supabaseAdmin
+          .from("absensi")
+          .update({ nama: namaBaru, kelas: editKelas })
+          .eq("user_id", editingUser.id)
+          .throwOnError(),
+        supabaseAdmin
+          .from("pengajuan")
+          .update({ nama: namaBaru, kelas: editKelas })
+          .eq("user_id", editingUser.id)
+          .throwOnError(),
+      ])
+
+      setProfiles((prev) =>
+        prev
+          .map((item) =>
+            item.id === editingUser.id ? { ...item, nama: namaBaru, kelas: editKelas } : item
+          )
+          .sort((a, b) => compareStudentNames(a.nama, b.nama))
+      )
+
+      if (selectedClass === editingUser.kelas && editKelas !== editingUser.kelas) {
+        setSelectedClass(editKelas)
+      }
+
+      closeEditModal()
+      const hasSyncWarning = syncResults.some((result) => result.status === "rejected")
+
+      if (hasSyncWarning) {
+        Alert.alert(
+          "Berhasil Sebagian",
+          "Profil siswa berhasil diperbarui, tetapi ada data lama yang belum tersinkron penuh."
+        )
+      } else {
+        Alert.alert("Berhasil", "Data siswa berhasil diperbarui.")
+      }
+    } catch (error: any) {
+      Alert.alert("Error", error.message || "Gagal memperbarui data siswa")
+    } finally {
+      setProcessingAction(null)
+    }
+  }
+
+  const deleteUser = (user: Profile) => {
+    Alert.alert(
+      "Hapus Siswa",
+      `Hapus ${user.nama} dari sistem? Data profil, absensi, pengajuan, dan akun login akan ikut terhapus.`,
+      [
+        { text: "Batal", style: "cancel" },
+        {
+          text: "Hapus",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setProcessingAction("delete")
+
+              const { error: pengajuanError } = await supabaseAdmin
+                .from("pengajuan")
+                .delete()
+                .eq("user_id", user.id)
+              if (pengajuanError) throw pengajuanError
+
+              const { error: absensiError } = await supabaseAdmin
+                .from("absensi")
+                .delete()
+                .eq("user_id", user.id)
+              if (absensiError) throw absensiError
+
+              const { error: profileError } = await supabaseAdmin
+                .from("profiles")
+                .delete()
+                .eq("id", user.id)
+              if (profileError) throw profileError
+
+              const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(user.id)
+              if (authError) throw authError
+
+              setProfiles((prev) => prev.filter((item) => item.id !== user.id))
+              Alert.alert("Berhasil", `${user.nama} berhasil dihapus.`)
+            } catch (error: any) {
+              Alert.alert("Error", error.message || "Gagal menghapus siswa")
+            } finally {
+              setProcessingAction(null)
+            }
+          },
+        },
+      ]
+    )
+  }
+
+  const resetClassUsers = () => {
+    if (!selectedClass) return
+
+    const usersInClass = profiles.filter((item) => item.kelas === selectedClass)
+    if (!usersInClass.length) {
+      Alert.alert("Info", `Belum ada siswa di kelas ${selectedClass}.`)
+      return
+    }
+
+    Alert.alert(
+      "Reset Per Kelas",
+      `Hapus semua siswa kelas ${selectedClass} beserta absensi, pengajuan, dan akun loginnya?`,
+      [
+        { text: "Batal", style: "cancel" },
+        {
+          text: "Reset",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setProcessingAction("reset")
+              const userIds = usersInClass.map((item) => item.id)
+
+              const { error: pengajuanError } = await supabaseAdmin
+                .from("pengajuan")
+                .delete()
+                .in("user_id", userIds)
+              if (pengajuanError) throw pengajuanError
+
+              const { error: absensiError } = await supabaseAdmin
+                .from("absensi")
+                .delete()
+                .in("user_id", userIds)
+              if (absensiError) throw absensiError
+
+              const { error: profileError } = await supabaseAdmin
+                .from("profiles")
+                .delete()
+                .in("id", userIds)
+              if (profileError) throw profileError
+
+              for (const userId of userIds) {
+                const { error: authError } = await supabaseAdmin.auth.admin.deleteUser(userId)
+                if (authError) {
+                  throw authError
+                }
+              }
+
+              setProfiles((prev) => prev.filter((item) => item.kelas !== selectedClass))
+              Alert.alert("Berhasil", `Semua akun siswa kelas ${selectedClass} berhasil direset.`)
+            } catch (error: any) {
+              Alert.alert("Error", error.message || "Gagal reset data kelas")
+            } finally {
+              setProcessingAction(null)
+            }
+          },
+        },
+      ]
+    )
+  }
+
+  return (
+    <ScreenShell viewProps={{ style: styles.container }} footer={<AdminBottomNav activeKey="daftar_akun" />}>
+        <PageHeader eyebrow="Direktori akun" title="Daftar Akun Siswa" onBackPress={handleBack} />
+
+        <InfoCard
+          title="Pilih kelas untuk melihat akun aktif"
+          description="Data akan diperbarui otomatis saat ada perubahan profil siswa."
+        />
+
+        {loading ? (
+          <ActivityIndicator size="large" color="#6D3BFF" />
+        ) : (
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+          >
+            <View style={styles.grid}>
+              {classes.map((kelas) => {
+                const jumlah = profiles.filter((user) => user.kelas === kelas).length
+                const active = selectedClass === kelas
+                return (
+                  <TouchableOpacity
+                    key={kelas}
+                    style={[styles.card, active && styles.cardActive]}
+                    onPress={() => setSelectedClass(kelas)}
+                  >
+                    <Ionicons name="school" size={26} color={active ? "#6D3BFF" : "#3A86FF"} />
+                    <Text style={styles.kelasText}>{kelas}</Text>
+                    <Text style={styles.jumlah}>{jumlah} siswa</Text>
+                  </TouchableOpacity>
+                )
+              })}
+            </View>
+
+            {selectedClass && (
+              <View style={styles.listContainer}>
+                <SectionHeader
+                  title={`Siswa ${selectedClass}`}
+                  hint={`${siswa.length} siswa terdaftar. Edit nama/kelas, hapus siswa, atau reset satu kelas penuh.`}
+                  rightSlot={
+                    <TouchableOpacity
+                      style={[styles.resetButton, processingAction === "reset" && styles.disabledButton]}
+                      onPress={resetClassUsers}
+                      disabled={processingAction !== null}
+                    >
+                      <Ionicons name="refresh-outline" size={16} color="#fff" />
+                      <Text style={styles.resetButtonText}>
+                        {processingAction === "reset" ? "Reset..." : "Reset Kelas"}
+                      </Text>
+                    </TouchableOpacity>
+                  }
+                />
+
+                <View style={styles.searchBox}>
+                  <Ionicons name="search-outline" size={18} color="#6d7e90" />
+                  <TextInput
+                    placeholder="Cari nama siswa"
+                    placeholderTextColor="#A89F9F"
+                    value={searchQuery}
+                    onChangeText={setSearchQuery}
+                    style={styles.searchInput}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                  />
+                  {searchQuery ? (
+                    <TouchableOpacity onPress={() => setSearchQuery("")}>
+                      <Ionicons name="close-circle" size={18} color="#6d7e90" />
+                    </TouchableOpacity>
+                  ) : null}
+                </View>
+
+                {siswa.length === 0 ? (
+                  <Text style={styles.kosong}>
+                    {searchQuery ? "Nama siswa tidak ditemukan" : "Belum ada akun"}
+                  </Text>
+                ) : (
+                  siswa.map((user) => (
+                    <View key={user.id} style={styles.userItem}>
+                      <View style={styles.userInfo}>
+                        <Ionicons name="person-circle" size={24} color="#6D3BFF" />
+                        <View style={styles.userTextWrap}>
+                          <Text style={styles.nama}>{user.nama}</Text>
+                          <Text style={styles.kelasBadge}>{user.kelas}</Text>
+                        </View>
+                      </View>
+                      <View style={styles.actionRow}>
+                        <TouchableOpacity
+                          style={styles.editButton}
+                          onPress={() => openEditModal(user)}
+                          disabled={processingAction !== null}
+                        >
+                          <Ionicons name="create-outline" size={16} color="#16324f" />
+                          <Text style={styles.editButtonText}>Edit</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.deleteButton}
+                          onPress={() => deleteUser(user)}
+                          disabled={processingAction !== null}
+                        >
+                          <Ionicons name="trash-outline" size={16} color="#fff" />
+                          <Text style={styles.deleteButtonText}>Hapus</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ))
+                )}
+              </View>
+            )}
+          </ScrollView>
+        )}
+      
+
+      <Modal transparent animationType="fade" visible={editModalVisible} onRequestClose={closeEditModal}>
+        <View style={styles.modalOverlay}>
+          <ModalCard>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalEyebrow}>Edit siswa</Text>
+                <Text style={styles.modalTitle}>{editingUser?.nama || "-"}</Text>
+              </View>
+              <TouchableOpacity style={styles.modalClose} onPress={closeEditModal}>
+                <Ionicons name="close" size={18} color="#16324f" />
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              placeholder="Nama siswa"
+              placeholderTextColor="#A89F9F"
+              value={editNama}
+              onChangeText={(text) => setEditNama(normalizeStudentName(text))}
+              style={styles.input}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              autoComplete="off"
+            />
+
+            <View style={styles.pickerBox}>
+              <Picker selectedValue={editKelas} onValueChange={(value) => setEditKelas(value)}>
+                {classes.map((kelas) => (
+                  <Picker.Item key={kelas} label={kelas} value={kelas} />
+                ))}
+              </Picker>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.saveButton, processingAction === "edit" && styles.disabledButton]}
+              onPress={() => saveUserUpdate()}
+              disabled={processingAction === "edit"}
+            >
+              <Text style={styles.saveButtonText}>
+                {processingAction === "edit" ? "Menyimpan..." : "Simpan Perubahan"}
+              </Text>
+            </TouchableOpacity>
+          </ModalCard>
+        </View>
+      </Modal>
+
+    </ScreenShell>
+  )
+}
+
+const styles = StyleSheet.create({
+  container: { flex: 1, paddingBottom: 16 },
+  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+  card: {
+    width: "48%",
+    backgroundColor: AppTheme.colors.surface,
+    padding: 18,
+    borderRadius: AppTheme.radius.lg,
+    alignItems: "center",
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  cardActive: { backgroundColor: AppTheme.colors.primarySoft, borderWidth: 1, borderColor: AppTheme.colors.primary },
+  kelasText: { fontSize: 15, fontWeight: "bold", marginTop: 8, color: AppTheme.colors.text },
+  jumlah: { fontSize: 12, color: AppTheme.colors.textMuted, marginTop: 3 },
+  listContainer: {
+    marginTop: 20,
+    backgroundColor: AppTheme.colors.surface,
+    padding: 16,
+    borderRadius: AppTheme.radius.lg,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    marginBottom: 12,
+  },
+  searchBox: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    backgroundColor: AppTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    borderRadius: AppTheme.radius.md,
+    paddingHorizontal: 14,
+    paddingVertical: 4,
+    marginBottom: 8,
+  },
+  searchInput: {
+    flex: 1,
+    minHeight: 42,
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "600",
+  },
+  resetButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: AppTheme.colors.danger,
+    borderRadius: AppTheme.radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  resetButtonText: { color: AppTheme.colors.white, fontWeight: "700", fontSize: 12 },
+  userItem: {
+    paddingVertical: 12,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+  },
+  userInfo: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  userTextWrap: { marginLeft: 10, flex: 1 },
+  nama: { fontSize: 15, color: AppTheme.colors.text, fontWeight: "700" },
+  kelasBadge: { color: AppTheme.colors.textMuted, marginTop: 4, fontSize: 12 },
+  actionRow: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    marginTop: 10,
+    gap: 10,
+  },
+  editButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: AppTheme.colors.primarySoft,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: AppTheme.radius.sm,
+  },
+  editButtonText: { color: AppTheme.colors.primary, fontWeight: "700" },
+  deleteButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: AppTheme.colors.danger,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: AppTheme.radius.sm,
+  },
+  deleteButtonText: { color: AppTheme.colors.white, fontWeight: "700" },
+  kosong: { color: AppTheme.colors.textMuted, fontStyle: "italic" },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: AppTheme.colors.overlay,
+    justifyContent: "center",
+    padding: 20,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 16,
+  },
+  modalEyebrow: { color: AppTheme.colors.textMuted, fontSize: 12, marginBottom: 4 },
+  modalTitle: { color: AppTheme.colors.text, fontSize: 20, fontWeight: "800" },
+  modalClose: {
+    width: 36,
+    height: 36,
+    borderRadius: AppTheme.radius.sm,
+    backgroundColor: AppTheme.colors.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  input: {
+    backgroundColor: AppTheme.colors.surface,
+    padding: 15,
+    borderRadius: AppTheme.radius.md,
+    marginBottom: 15,
+    fontWeight: "600",
+    fontSize: 16,
+    color: AppTheme.colors.text,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  pickerBox: {
+    backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.md,
+    marginBottom: 18,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    overflow: "hidden",
+  },
+  saveButton: {
+    backgroundColor: AppTheme.colors.primary,
+    borderRadius: AppTheme.radius.md,
+    paddingVertical: 14,
+    alignItems: "center",
+  },
+  saveButtonText: { color: AppTheme.colors.white, fontWeight: "800", fontSize: 15 },
+  disabledButton: { opacity: 0.7 },
+})
