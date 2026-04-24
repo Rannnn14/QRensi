@@ -1,6 +1,5 @@
 import {
   View,
-  Text,
   Alert,
   StyleSheet,
   RefreshControl,

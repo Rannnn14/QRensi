@@ -12,9 +12,8 @@ import {
 import { supabase } from "../../lib/supabase";
 import QRCode from "react-native-qrcode-svg";
 import { UserBottomNav } from "../../components/user-bottom-nav";
-import ViewShot from "react-native-view-shot";
 import { useFeatureBack } from "../../hooks/use-feature-back";
-import { saveImageToGallery } from "../../lib/device-files";
+import { saveImageToGallery, writeBase64ImageToCache } from "../../lib/device-files";
 import { AppTheme } from "../../constants/theme";
 import { InfoCard } from "../../components/ui/info-card";
 import { PageHeader } from "../../components/ui/page-header";
@@ -32,7 +31,7 @@ export default function GenerateQR() {
   const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
 
-  const viewShotRef = useRef<ViewShot | null>(null);
+  const qrCodeRef = useRef<any>(null);
   const handleBack = useFeatureBack({ fallbackRoute: "/user" });
 
   // ======================
@@ -62,7 +61,7 @@ export default function GenerateQR() {
   // DOWNLOAD QR
   // ======================
   const downloadQR = async () => {
-    if (!viewShotRef.current) {
+    if (!qrCodeRef.current) {
       Alert.alert("QR belum siap");
       return;
     }
@@ -70,14 +69,28 @@ export default function GenerateQR() {
     try {
       setDownloading(true);
 
-      const uri = await viewShotRef.current.capture?.();
-      if (!uri) {
+      const qrBase64 = await new Promise<string>((resolve, reject) => {
+        try {
+          qrCodeRef.current?.toDataURL?.((data: string) => {
+            if (!data) {
+              reject(new Error("QR kosong"));
+              return;
+            }
+
+            resolve(data);
+          });
+        } catch (error) {
+          reject(error);
+        }
+      });
+
+      if (!qrBase64) {
         Alert.alert("Gagal mengambil QR");
         return;
       }
 
       if (Platform.OS === "web") {
-        const response = await fetch(uri);
+        const response = await fetch(`data:image/png;base64,${qrBase64}`);
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
@@ -88,6 +101,10 @@ export default function GenerateQR() {
         document.body.removeChild(anchor);
         URL.revokeObjectURL(url);
       } else {
+        const uri = await writeBase64ImageToCache(
+          `qr_${profile?.nama?.replace(/\s+/g, "_").toLowerCase() || "siswa"}.png`,
+          qrBase64
+        );
         await saveImageToGallery(uri);
       }
 
@@ -161,20 +178,21 @@ export default function GenerateQR() {
           description="QR ini dapat disimpan ke galeri lalu dicetak untuk proses pemindaian harian."
         />
 
-        <ViewShot
-          ref={viewShotRef}
-          options={{ format: "png", quality: 1 }}
-        >
-          <View style={styles.card}>
-            <Text style={styles.title}>KARTU QR SISWA</Text>
-            <Text style={styles.name}>{profile.nama}</Text>
-            <Text style={styles.kelas}>{profile.kelas}</Text>
-            <View style={styles.qrBox}>
-              <QRCode value={profile.id} size={200} />
-            </View>
-            <Text style={styles.caption}>Cetak QR ini dan simpan di holder kartu siswa untuk pemindaian harian.</Text>
+        <View style={styles.card}>
+          <Text style={styles.title}>KARTU QR SISWA</Text>
+          <Text style={styles.name}>{profile.nama}</Text>
+          <Text style={styles.kelas}>{profile.kelas}</Text>
+          <View style={styles.qrBox}>
+            <QRCode
+              value={profile.id}
+              size={200}
+              getRef={(ref) => {
+                qrCodeRef.current = ref;
+              }}
+            />
           </View>
-        </ViewShot>
+          <Text style={styles.caption}>Cetak QR ini dan simpan di holder kartu siswa untuk pemindaian harian.</Text>
+        </View>
 
         <View style={styles.buttonRow}>
           <TouchableOpacity

@@ -7,18 +7,14 @@ import { AdminBottomNav } from "../../components/admin-bottom-nav"
 import { AppTheme } from "../../constants/theme"
 import { SectionHeader } from "../../components/ui/section-header"
 import { supabase } from "../../lib/supabase"
+import { supabaseAdmin } from "../../lib/supabaseAdmin"
 import { prepareNotifications, sendLocalNotification } from "../../lib/notifications"
+import { PASSWORD_REQUEST_TYPE, formatSubmissionDate, formatSubmissionTime, getSubmissionDisplayType } from "../../lib/pengajuan"
 
 const adminActions = [
   {
-    title: "Tambah User",
-    description: "Buat akun siswa baru",
-    icon: "person-add-outline" as const,
-    action: () => router.push("/tambah_user"),
-  },
-  {
     title: "Daftar Akun",
-    description: "Cek akun aktif per kelas",
+    description: "Cek akun aktif dan tambah siswa",
     icon: "people-outline" as const,
     action: () => router.push("/daftar_akun"),
   },
@@ -28,13 +24,15 @@ const adminActions = [
     icon: "clipboard-outline" as const,
     action: () => router.push("/daftar_hadir" as any),
   },
-  {
-    title: "Pengajuan",
-    description: "Review izin dan sakit",
-    icon: "document-text-outline" as const,
-    action: () => router.push("/pengajuan" as any),
-  },
 ]
+
+type PendingSubmission = {
+  id: string
+  nama: string
+  kelas: string
+  jenis: string
+  created_at: string
+}
 
 export default function Admin() {
   const [counts, setCounts] = useState({
@@ -43,7 +41,7 @@ export default function Admin() {
     attendance: 0,
   })
   const [refreshing, setRefreshing] = useState(false)
-  const [adminNotice, setAdminNotice] = useState("Belum ada notifikasi baru.")
+  const [pendingSubmissions, setPendingSubmissions] = useState<PendingSubmission[]>([])
 
   const logout = async () => {
     await supabase.auth.signOut()
@@ -51,10 +49,21 @@ export default function Admin() {
   }
 
   const fetchCounts = async () => {
-    const [usersResult, submissionResult, attendanceResult] = await Promise.all([
+    const [usersResult, submissionResult, attendanceResult, pendingListResult] = await Promise.all([
       supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "user"),
-      supabase.from("pengajuan").select("*", { count: "exact", head: true }),
+      supabaseAdmin
+        .from("pengajuan")
+        .select("*", { count: "exact", head: true })
+        .eq("status", "pending")
+        .neq("jenis", PASSWORD_REQUEST_TYPE),
       supabase.from("absensi").select("*", { count: "exact", head: true }),
+      supabaseAdmin
+        .from("pengajuan")
+        .select("id, nama, kelas, jenis, created_at")
+        .eq("status", "pending")
+        .neq("jenis", PASSWORD_REQUEST_TYPE)
+        .order("created_at", { ascending: false })
+        .limit(5),
     ])
 
     setCounts({
@@ -62,13 +71,7 @@ export default function Admin() {
       pengajuan: submissionResult.count || 0,
       attendance: attendanceResult.count || 0,
     })
-
-    const pendingSubmissions = submissionResult.count || 0
-    setAdminNotice(
-      pendingSubmissions > 0
-        ? `${pendingSubmissions} pengajuan sedang menunggu review admin.`
-        : "Belum ada pengajuan baru yang perlu dicek."
-    )
+    setPendingSubmissions((pendingListResult.data || []) as PendingSubmission[])
   }
 
   useEffect(() => {
@@ -81,10 +84,9 @@ export default function Admin() {
       .subscribe()
 
     const submissionSub = supabase
-      .channel("public:pengajuan")
-      .on("postgres_changes", { event: "*", schema: "public", table: "pengajuan" }, (payload) => {
-        if (payload.eventType === "INSERT") {
-          setAdminNotice("Ada pengajuan baru masuk. Silakan cek halaman pengajuan.")
+        .channel("public:pengajuan")
+        .on("postgres_changes", { event: "*", schema: "public", table: "pengajuan" }, (payload) => {
+        if (payload.eventType === "INSERT" && payload.new?.jenis !== PASSWORD_REQUEST_TYPE) {
           sendLocalNotification("Pengajuan baru", "Ada pengajuan baru yang masuk ke panel admin.")
         }
 
@@ -125,17 +127,6 @@ export default function Admin() {
           </View>
 
           <View style={styles.headerActions}>
-            <TouchableOpacity
-              style={styles.iconButton}
-              onPress={() => router.push("/pengajuan" as any)}
-            >
-              <Ionicons name="notifications-outline" size={18} color="#22405f" />
-              {counts.pengajuan > 0 ? (
-                <View style={styles.notificationBadge}>
-                  <Text style={styles.notificationBadgeText}>{counts.pengajuan > 9 ? "9+" : counts.pengajuan}</Text>
-                </View>
-              ) : null}
-            </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={onRefresh} disabled={refreshing}>
               <Ionicons
                 name={refreshing ? "hourglass-outline" : "refresh-outline"}
@@ -163,13 +154,30 @@ export default function Admin() {
         </View>
 
         <TouchableOpacity style={styles.noticeCard} onPress={() => router.push("/pengajuan" as any)}>
-          <View style={styles.noticeIconWrap}>
-            <Ionicons name="notifications-outline" size={18} color="#16324f" />
+          <View style={styles.noticeHeader}>
+            <Text style={styles.noticeTitle}>Daftar Pengajuan</Text>
+            <Text style={styles.noticeMeta}>{counts.pengajuan} pending</Text>
           </View>
-          <View style={styles.noticeCopy}>
-            <Text style={styles.noticeTitle}>Notifikasi admin</Text>
-            <Text style={styles.noticeText}>{adminNotice}</Text>
-          </View>
+          {pendingSubmissions.length === 0 ? (
+            <Text style={styles.noticeEmpty}>Belum ada pengajuan izin atau sakit yang menunggu.</Text>
+          ) : (
+            pendingSubmissions.map((item) => (
+              <View key={item.id} style={styles.noticeItem}>
+                <View style={styles.noticeBadge}>
+                  <Ionicons name="document-text-outline" size={16} color="#16324f" />
+                </View>
+                <View style={styles.noticeCopy}>
+                  <Text style={styles.noticeItemTitle}>{item.nama}</Text>
+                  <Text style={styles.noticeText}>
+                    {getSubmissionDisplayType(item.jenis)} • Kelas {item.kelas}
+                  </Text>
+                  <Text style={styles.noticeText}>
+                    {formatSubmissionDate(item.created_at)} • {formatSubmissionTime(item.created_at)}
+                  </Text>
+                </View>
+              </View>
+            ))
+          )}
         </TouchableOpacity>
 
         <View style={styles.statsRow}>
@@ -272,23 +280,6 @@ const styles = StyleSheet.create({
     alignItems: "center",
     position: "relative",
   },
-  notificationBadge: {
-    position: "absolute",
-    top: -4,
-    right: -2,
-    minWidth: 18,
-    height: 18,
-    borderRadius: AppTheme.radius.pill,
-    backgroundColor: AppTheme.colors.danger,
-    justifyContent: "center",
-    alignItems: "center",
-    paddingHorizontal: 4,
-  },
-  notificationBadgeText: {
-    color: AppTheme.colors.white,
-    fontSize: 10,
-    fontWeight: "800",
-  },
   logoutButton: {
     flexDirection: "row",
     alignItems: "center",
@@ -340,28 +331,55 @@ const styles = StyleSheet.create({
     marginBottom: 16,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 12,
   },
-  noticeIconWrap: {
-    width: 42,
-    height: 42,
+  noticeHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 12,
+  },
+  noticeMeta: {
+    color: AppTheme.colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  noticeItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingTop: 12,
+    paddingBottom: 2,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+  },
+  noticeBadge: {
+    width: 38,
+    height: 38,
     borderRadius: AppTheme.radius.sm,
-    backgroundColor: AppTheme.colors.accentSoft,
+    backgroundColor: AppTheme.colors.primarySoft,
     justifyContent: "center",
     alignItems: "center",
-  },
-  noticeCopy: {
-    flex: 1,
   },
   noticeTitle: {
     color: AppTheme.colors.text,
     fontSize: 14,
     fontWeight: "800",
   },
+  noticeCopy: {
+    flex: 1,
+  },
+  noticeItemTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+    marginBottom: 3,
+  },
   noticeText: {
-    marginTop: 4,
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  noticeEmpty: {
     color: AppTheme.colors.textMuted,
     fontSize: 12,
     lineHeight: 18,

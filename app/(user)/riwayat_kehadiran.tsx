@@ -6,7 +6,6 @@ import {
   RefreshControl,
   TouchableOpacity,
   Modal,
-  Alert,
 } from "react-native"
 import { useEffect, useState, useCallback } from "react"
 import { supabase } from "../../lib/supabase"
@@ -15,7 +14,6 @@ import { Picker } from "@react-native-picker/picker"
 import { UserBottomNav } from "../../components/user-bottom-nav"
 import { useFeatureBack } from "../../hooks/use-feature-back"
 import { getLocalDateValue, getLocalMonthValue, shiftMonthValue } from "../../lib/date"
-import { saveCsvFile } from "../../lib/device-files"
 import { getYearOptions, MONTH_OPTIONS } from "../../lib/calendar"
 import { AppTheme } from "../../constants/theme"
 import { InfoCard } from "../../components/ui/info-card"
@@ -37,7 +35,6 @@ export default function RiwayatKehadiran() {
   const [calendarVisible, setCalendarVisible] = useState(false)
   const [selectedDate, setSelectedDate] = useState(getLocalDateValue())
   const [calendarMonth, setCalendarMonth] = useState(getLocalMonthValue())
-  const [downloading, setDownloading] = useState(false)
   const handleBack = useFeatureBack({
     fallbackRoute: "/user",
     beforeBack: () => {
@@ -188,51 +185,6 @@ export default function RiwayatKehadiran() {
 
   const selectedAttendance = getAttendanceByDate(selectedDate)
 
-  const downloadAttendance = async () => {
-    try {
-      setDownloading(true)
-
-      const activeMonth = selectedDate.slice(0, 7)
-      const [year, month] = activeMonth.split("-").map(Number)
-      const daysInMonth = new Date(year, month, 0).getDate()
-      const csvRows = Array.from({ length: daysInMonth }, (_, index) => {
-        const tanggal = `${activeMonth}-${String(index + 1).padStart(2, "0")}`
-        const item = getAttendanceByDate(tanggal)
-
-        return [
-          index + 1,
-          tanggal,
-          formatTanggal(tanggal),
-          getStatusLabel(item?.status),
-          item?.waktu || "-",
-        ]
-      })
-
-      const escapeCsvValue = (value: string | number) => `"${String(value).replace(/"/g, '""')}"`
-      const csvContent = [
-        ["No", "Tanggal", "Detail Hari", "Status", "Waktu"].map(escapeCsvValue).join(","),
-        ...csvRows.map((row) => row.map(escapeCsvValue).join(",")),
-      ].join("\n")
-
-      const fileName = `riwayat_kehadiran_${activeMonth}.csv`
-
-      const result = await saveCsvFile(fileName, csvContent)
-      const successMessage =
-        result.mode === "saved"
-          ? "Riwayat kehadiran berhasil disimpan ke folder yang dipilih."
-          : result.mode === "shared"
-            ? "File riwayat sudah siap dibagikan atau disimpan dari menu perangkat."
-            : "Riwayat kehadiran berhasil diexport."
-
-      Alert.alert("Berhasil", successMessage)
-    } catch (error) {
-      console.log(error)
-      Alert.alert("Gagal", "Export riwayat kehadiran belum berhasil.")
-    } finally {
-      setDownloading(false)
-    }
-  }
-
   return (
     <ScreenShell
       scroll
@@ -267,20 +219,6 @@ export default function RiwayatKehadiran() {
                   <Text style={styles.secondaryActionText}>Pilih Bulan</Text>
                 </TouchableOpacity>
               </View>
-
-              <View style={styles.actionCard}>
-                <TouchableOpacity
-                  style={[styles.downloadAction, downloading && styles.actionDisabled]}
-                  onPress={downloadAttendance}
-                  disabled={downloading}
-                >
-                  <Ionicons name="download-outline" size={18} color="#fff" />
-                  <Text style={styles.downloadText}>
-                    {downloading ? "Menyiapkan..." : "Export Excel"}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
               <View style={styles.detailCard}>
                 <Text style={styles.detailLabel}>Tanggal dipilih</Text>
                 <Text style={styles.detailDate}>{formatTanggal(selectedDate)}</Text>
@@ -449,26 +387,6 @@ const styles = StyleSheet.create({
   secondaryActionText: {
     color: AppTheme.colors.primary,
     fontWeight: "700",
-  },
-  actionCard: {
-    marginBottom: 14,
-  },
-  downloadAction: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 8,
-    backgroundColor: AppTheme.colors.primary,
-    borderRadius: AppTheme.radius.md,
-    paddingVertical: 13,
-  },
-  downloadText: {
-    color: AppTheme.colors.white,
-    fontWeight: "700",
-    fontSize: 14,
-  },
-  actionDisabled: {
-    opacity: 0.7,
   },
   detailCard: {
     backgroundColor: AppTheme.colors.surface,

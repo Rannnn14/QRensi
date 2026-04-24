@@ -30,7 +30,12 @@ export default function Layout() {
 
   return (
     <>
-      <StatusBar style="dark" hidden={false} translucent={false} />
+      <StatusBar
+        style="auto"
+        hidden={false}
+        translucent={false}
+        backgroundColor={AppTheme.colors.background}
+      />
       <Stack screenOptions={{ headerShown: false }} />
     </>
   );

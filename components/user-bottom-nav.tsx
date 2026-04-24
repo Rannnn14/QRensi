@@ -5,9 +5,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { AppTheme } from "../constants/theme"
 
 const items = [
-  { key: "user", label: "Dasbor", icon: "home-outline", route: "/user" },
   { key: "status_kehadiran", label: "Status", icon: "checkmark-done-outline", route: "/status_kehadiran" },
   { key: "riwayat_kehadiran", label: "Riwayat", icon: "time-outline", route: "/riwayat_kehadiran" },
+  { key: "user", label: "Home", icon: "home", route: "/user" },
   { key: "ajuan", label: "Izin", icon: "document-text-outline", route: "/ajuan" },
   { key: "generate_qr", label: "Kode QR", icon: "qr-code-outline", route: "/generate_qr" },
 ]
@@ -23,6 +23,7 @@ export function UserBottomNav({ activeKey }: Props) {
     <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
       {items.map((item) => {
         const active = item.key === activeKey
+        const isHome = item.key === "user"
 
         return (
           <TouchableOpacity
@@ -30,14 +31,14 @@ export function UserBottomNav({ activeKey }: Props) {
             style={styles.item}
             onPress={() => router.replace(item.route as any)}
           >
-            <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
+            <View style={[styles.iconWrap, active && styles.iconWrapActive, isHome && active && styles.homeIconWrap]}>
               <Ionicons
                 name={item.icon as keyof typeof Ionicons.glyphMap}
                 size={18}
-                color={active ? "#16324f" : "#7e8e9e"}
+                color={isHome && active ? "#FFFFFF" : active ? "#16324f" : "#7e8e9e"}
               />
             </View>
-            <Text style={[styles.label, active && styles.labelActive]}>{item.label}</Text>
+            <Text style={[styles.label, active && styles.labelActive, isHome && active && styles.homeLabelActive]}>{item.label}</Text>
           </TouchableOpacity>
         )
       })}
@@ -71,6 +72,9 @@ const styles = StyleSheet.create({
   iconWrapActive: {
     backgroundColor: AppTheme.colors.primarySoft,
   },
+  homeIconWrap: {
+    backgroundColor: AppTheme.colors.primary,
+  },
   label: {
     fontSize: 11,
     fontWeight: "700",
@@ -78,5 +82,9 @@ const styles = StyleSheet.create({
   },
   labelActive: {
     color: AppTheme.colors.primary,
+  },
+  homeLabelActive: {
+    color: AppTheme.colors.primary,
+    fontWeight: "800",
   },
 })

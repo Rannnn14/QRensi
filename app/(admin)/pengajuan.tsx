@@ -10,9 +10,9 @@ import {
   Image,
   Modal,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { supabase } from "../../lib/supabase";
 import { supabaseAdmin } from "../../lib/supabaseAdmin";
-import { Ionicons } from "@expo/vector-icons";
 import { AdminBottomNav } from "../../components/admin-bottom-nav";
 import { useFeatureBack } from "../../hooks/use-feature-back";
 import { AppTheme } from "../../constants/theme";
@@ -20,6 +20,16 @@ import { InfoCard } from "../../components/ui/info-card";
 import { ModalCard } from "../../components/ui/modal-card";
 import { PageHeader } from "../../components/ui/page-header";
 import { ScreenShell } from "../../components/ui/screen-shell";
+import {
+  formatSubmissionDateTime,
+  formatSubmissionTime,
+  getSubmissionDisplayNote,
+  getSubmissionDisplayType,
+  getSubmissionStatusLabel,
+  isPasswordRequest,
+  PASSWORD_REQUEST_TYPE,
+  parsePasswordRequestNote,
+} from "../../lib/pengajuan";
 
 type Pengajuan = {
   id: string;
@@ -31,6 +41,12 @@ type Pengajuan = {
   status: string;
   created_at: string;
   buktiUrl?: string | null;
+};
+
+const getStatusColor = (status: string) => {
+  if (status === "approved") return AppTheme.colors.success;
+  if (status === "rejected") return AppTheme.colors.danger;
+  return AppTheme.colors.warning;
 };
 
 export default function PengajuanAdmin() {
@@ -52,7 +68,25 @@ export default function PengajuanAdmin() {
   });
 
   const getProofUrl = async (pengajuanId: string) => {
-    const filePath = `pengajuan/${pengajuanId}`;
+    const { data: files, error: listError } = await supabaseAdmin.storage
+      .from("bukti-ajuan")
+      .list("pengajuan", {
+        search: pengajuanId,
+      });
+
+    if (listError) {
+      return null;
+    }
+
+    const proofFile = files?.find(
+      (file) => file.name === pengajuanId || file.name.startsWith(`${pengajuanId}.`)
+    );
+
+    if (!proofFile) {
+      return null;
+    }
+
+    const filePath = `pengajuan/${proofFile.name}`;
     const { data, error } = await supabaseAdmin.storage
       .from("bukti-ajuan")
       .createSignedUrl(filePath, 3600);
@@ -67,10 +101,11 @@ export default function PengajuanAdmin() {
   const fetchPengajuan = useCallback(async () => {
     setLoading(true);
     try {
-      const { data, error } = await supabase
+      const { data, error } = await supabaseAdmin
         .from("pengajuan")
         .select("*")
         .eq("status", "pending")
+        .neq("jenis", PASSWORD_REQUEST_TYPE)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -78,7 +113,7 @@ export default function PengajuanAdmin() {
       const withProof = await Promise.all(
         (data || []).map(async (item) => ({
           ...item,
-          buktiUrl: await getProofUrl(item.id),
+          buktiUrl: isPasswordRequest(item.jenis) ? null : await getProofUrl(item.id),
         }))
       );
 
@@ -90,23 +125,18 @@ export default function PengajuanAdmin() {
     }
   }, []);
 
-  const removeProofFile = async (pengajuanId: string) => {
-    await supabaseAdmin.storage.from("bukti-ajuan").remove([`pengajuan/${pengajuanId}`]);
-  };
-
-  // Real-time subscription
   useEffect(() => {
     let realtimeChannel: any;
 
     const setupRealtime = async () => {
-      await fetchPengajuan(); // initial load
+      await fetchPengajuan();
       realtimeChannel = supabase
         .channel("public:pengajuan")
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "pengajuan" },
           () => {
-            fetchPengajuan(); // update UI saat ada perubahan
+            fetchPengajuan();
           }
         )
         .subscribe();
@@ -121,8 +151,8 @@ export default function PengajuanAdmin() {
 
   const approvePengajuan = async (item: Pengajuan) => {
     Alert.alert(
-      "Konfirmasi Approve",
-      `Apakah Anda yakin ingin approve pengajuan "${item.jenis}" untuk ${item.nama}?`,
+      "Konfirmasi Persetujuan",
+      `Setujui pengajuan "${getSubmissionDisplayType(item.jenis)}" untuk ${item.nama}?`,
       [
         { text: "Batal", style: "cancel" },
         {
@@ -130,58 +160,79 @@ export default function PengajuanAdmin() {
           onPress: async () => {
             try {
               setProcessingId(item.id);
-              const today = new Date();
-              const tanggal = today.toISOString().split("T")[0];
-              const waktu = today.toTimeString().split(" ")[0];
 
-              const { data: existingAbsensi, error: absensiError } = await supabase
-                .from("absensi")
-                .select("*")
-                .eq("user_id", item.user_id)
-                .eq("tanggal", tanggal)
-                .single();
+              if (isPasswordRequest(item.jenis)) {
+                const passwordPayload = parsePasswordRequestNote(item.keterangan);
+                if (!passwordPayload?.password) {
+                  throw new Error("Data password baru tidak ditemukan.");
+                }
 
-              if (absensiError && absensiError.code !== "PGRST116") throw absensiError;
+                const { error: passwordError } = await supabaseAdmin.auth.admin.updateUserById(
+                  item.user_id,
+                  { password: passwordPayload.password }
+                );
 
-              if (existingAbsensi) {
-                await supabase
-                  .from("absensi")
-                  .update({ status: item.jenis })
-                  .eq("id", existingAbsensi.id)
-                  .throwOnError();
+                if (passwordError) throw passwordError;
               } else {
-                await supabase
+                const today = new Date();
+                const tanggal = today.toISOString().split("T")[0];
+                const waktu = today.toTimeString().split(" ")[0];
+
+                const { data: existingAbsensi, error: absensiError } = await supabaseAdmin
                   .from("absensi")
-                  .insert([{
-                    user_id: item.user_id,
-                    nama: item.nama,
-                    kelas: item.kelas,
-                    tanggal,
-                    waktu,
-                    status: item.jenis
-                  }])
-                  .throwOnError();
+                  .select("*")
+                  .eq("user_id", item.user_id)
+                  .eq("tanggal", tanggal)
+                  .maybeSingle();
+
+                if (absensiError) throw absensiError;
+
+                if (existingAbsensi) {
+                  await supabaseAdmin
+                    .from("absensi")
+                    .update({ status: item.jenis, waktu })
+                    .eq("id", existingAbsensi.id)
+                    .throwOnError();
+                } else {
+                  await supabaseAdmin
+                    .from("absensi")
+                    .insert([
+                      {
+                        user_id: item.user_id,
+                        nama: item.nama,
+                        kelas: item.kelas,
+                        tanggal,
+                        waktu,
+                        status: item.jenis,
+                      },
+                    ])
+                    .throwOnError();
+                }
               }
 
-              // Hapus pengajuan setelah approve
-              await removeProofFile(item.id);
-              await supabase.from("pengajuan").delete().eq("id", item.id).throwOnError();
-              setPengajuanList(prev => prev.filter(p => p.id !== item.id));
+              await supabaseAdmin
+                .from("pengajuan")
+                .update({ status: "approved" })
+                .eq("id", item.id)
+                .throwOnError();
+
+              setPengajuanList((prev) => prev.filter((submission) => submission.id !== item.id));
+              Alert.alert("Berhasil", "Pengajuan berhasil disetujui.");
             } catch (err: any) {
               Alert.alert("Error", err.message);
             } finally {
               setProcessingId(null);
             }
-          }
-        }
+          },
+        },
       ]
     );
   };
 
   const rejectPengajuan = async (item: Pengajuan) => {
     Alert.alert(
-      "Konfirmasi Reject",
-      `Apakah Anda yakin ingin menolak pengajuan "${item.jenis}" untuk ${item.nama}?`,
+      "Konfirmasi Penolakan",
+      `Tolak pengajuan "${getSubmissionDisplayType(item.jenis)}" untuk ${item.nama}?`,
       [
         { text: "Batal", style: "cancel" },
         {
@@ -189,16 +240,21 @@ export default function PengajuanAdmin() {
           onPress: async () => {
             try {
               setProcessingId(item.id);
-              await removeProofFile(item.id);
-              await supabase.from("pengajuan").delete().eq("id", item.id).throwOnError();
-              setPengajuanList(prev => prev.filter(p => p.id !== item.id));
+              await supabaseAdmin
+                .from("pengajuan")
+                .update({ status: "rejected" })
+                .eq("id", item.id)
+                .throwOnError();
+
+              setPengajuanList((prev) => prev.filter((submission) => submission.id !== item.id));
+              Alert.alert("Berhasil", "Pengajuan berhasil ditolak.");
             } catch (err: any) {
               Alert.alert("Error", err.message);
             } finally {
               setProcessingId(null);
             }
-          }
-        }
+          },
+        },
       ]
     );
   };
@@ -219,65 +275,74 @@ export default function PengajuanAdmin() {
         refreshControl: <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />,
       }}
     >
-        <View style={styles.shell}>
+      <View style={styles.shell}>
         <PageHeader eyebrow="Review admin" title="Daftar Pengajuan" onBackPress={handleBack} />
 
         <InfoCard
           title="Permintaan yang menunggu persetujuan"
-          description="Setujui atau tolak pengajuan siswa tanpa mengubah alur sistem absensi lain."
+          description="Admin bisa menyetujui izin, sakit, dan permintaan ganti password dari halaman ini."
         />
 
         {pengajuanList.length === 0 && (
-          <Text style={styles.noDataText}>Tidak ada pengajuan pending</Text>
+          <Text style={styles.noDataText}>Tidak ada pengajuan pending.</Text>
         )}
 
-        {pengajuanList.map(item => (
-          <View key={item.id} style={styles.card}>
-            <View style={styles.topBadgeRow}>
-              <Text style={styles.userName}>{item.nama}</Text>
-              <View style={styles.typePill}>
-                <Text style={styles.typePillText}>{item.jenis}</Text>
+        {pengajuanList.map((item) => {
+          const statusColor = getStatusColor(item.status);
+
+          return (
+            <View key={item.id} style={styles.card}>
+              <View style={styles.topBadgeRow}>
+                <Text style={styles.userName}>{item.nama}</Text>
+                <View style={styles.typePill}>
+                  <Text style={styles.typePillText}>{getSubmissionDisplayType(item.jenis)}</Text>
+                </View>
+              </View>
+
+              <Text style={styles.userInfo}>Kelas {item.kelas}</Text>
+              <Text style={styles.userInfo}>Tanggal pengajuan: {formatSubmissionDateTime(item.created_at)}</Text>
+              <Text style={styles.userInfoStrong}>Jam pengajuan: {formatSubmissionTime(item.created_at)}</Text>
+              <Text style={styles.keterangan}>{getSubmissionDisplayNote(item.jenis, item.keterangan)}</Text>
+
+              <View style={[styles.statusPill, { backgroundColor: `${statusColor}22` }]}>
+                <Text style={[styles.statusPillText, { color: statusColor }]}>
+                  {getSubmissionStatusLabel(item.status)}
+                </Text>
+              </View>
+
+              {item.buktiUrl ? (
+                <TouchableOpacity style={styles.proofButton} onPress={() => setPreviewUrl(item.buktiUrl || null)}>
+                  <Ionicons name="image-outline" size={16} color="#16324f" />
+                  <Text style={styles.proofButtonText}>Lihat Bukti Foto</Text>
+                </TouchableOpacity>
+              ) : isPasswordRequest(item.jenis) ? (
+                <Text style={styles.noProofText}>Tidak memerlukan bukti foto.</Text>
+              ) : (
+                <Text style={styles.noProofText}>Belum ada bukti foto.</Text>
+              )}
+
+              <View style={styles.buttonRow}>
+                <TouchableOpacity
+                  style={[styles.approveButton, processingId === item.id && styles.disabledButton]}
+                  onPress={() => approvePengajuan(item)}
+                  disabled={processingId === item.id}
+                >
+                  <Text style={styles.buttonText}>Approve</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.rejectButton, processingId === item.id && styles.disabledButton]}
+                  onPress={() => rejectPengajuan(item)}
+                  disabled={processingId === item.id}
+                >
+                  <Text style={styles.buttonText}>Reject</Text>
+                </TouchableOpacity>
               </View>
             </View>
-            <Text style={styles.userInfo}>Kelas {item.kelas}</Text>
-            <Text style={styles.keterangan}>{item.keterangan}</Text>
+          );
+        })}
+      </View>
 
-            {item.buktiUrl ? (
-              <TouchableOpacity style={styles.proofButton} onPress={() => setPreviewUrl(item.buktiUrl || null)}>
-                <Ionicons name="image-outline" size={16} color="#16324f" />
-                <Text style={styles.proofButtonText}>Lihat Bukti Foto</Text>
-              </TouchableOpacity>
-            ) : (
-              <Text style={styles.noProofText}>Belum ada bukti foto</Text>
-            )}
-
-            <View style={styles.buttonRow}>
-              <TouchableOpacity
-                style={[
-                  styles.approveButton,
-                  processingId === item.id && styles.disabledButton,
-                ]}
-                onPress={() => approvePengajuan(item)}
-                disabled={processingId === item.id}
-              >
-                <Text style={styles.buttonText}>Approve</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={[
-                  styles.rejectButton,
-                  processingId === item.id && styles.disabledButton,
-                ]}
-                onPress={() => rejectPengajuan(item)}
-                disabled={processingId === item.id}
-              >
-                <Text style={styles.buttonText}>Reject</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ))}
-        </View>
-      
       <Modal transparent animationType="fade" visible={!!previewUrl} onRequestClose={() => setPreviewUrl(null)}>
         <View style={styles.modalOverlay}>
           <ModalCard>
@@ -306,9 +371,21 @@ const styles = StyleSheet.create({
   topBadgeRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8, gap: 10 },
   userName: { fontSize: 18, fontWeight: "800", color: AppTheme.colors.text, flex: 1 },
   typePill: { backgroundColor: AppTheme.colors.primarySoft, paddingHorizontal: 12, paddingVertical: 6, borderRadius: AppTheme.radius.pill },
-  typePillText: { color: AppTheme.colors.primary, fontWeight: "700", textTransform: "capitalize" },
-  userInfo: { fontSize: 14, marginBottom: 8, color: AppTheme.colors.textMuted },
-  keterangan: { fontSize: 15, marginBottom: 14, color: AppTheme.colors.text, lineHeight: 20 },
+  typePillText: { color: AppTheme.colors.primary, fontWeight: "700" },
+  userInfo: { fontSize: 13, marginBottom: 6, color: AppTheme.colors.textMuted },
+  userInfoStrong: { fontSize: 13, marginBottom: 8, color: AppTheme.colors.text, fontWeight: "700" },
+  keterangan: { fontSize: 15, marginBottom: 12, color: AppTheme.colors.text, lineHeight: 20 },
+  statusPill: {
+    alignSelf: "flex-start",
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: AppTheme.radius.pill,
+    marginBottom: 14,
+  },
+  statusPillText: {
+    fontWeight: "800",
+    fontSize: 12,
+  },
   proofButton: {
     flexDirection: "row",
     alignItems: "center",

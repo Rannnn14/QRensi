@@ -5,10 +5,9 @@ import { useSafeAreaInsets } from "react-native-safe-area-context"
 import { AppTheme } from "../constants/theme"
 
 const items = [
-  { key: "admin", label: "Dasbor", icon: "grid-outline", route: "/admin" },
   { key: "daftar_akun", label: "Akun", icon: "people-outline", route: "/daftar_akun" },
-  { key: "tambah_user", label: "Tambah", icon: "person-add-outline", route: "/tambah_user" },
   { key: "daftar_hadir", label: "Hadir", icon: "clipboard-outline", route: "/daftar_hadir" },
+  { key: "admin", label: "Home", icon: "home", route: "/admin" },
   { key: "pengajuan", label: "Ajuan", icon: "document-text-outline", route: "/pengajuan" },
   { key: "scanner", label: "Scan", icon: "scan-outline", route: "/scanner" },
 ]
@@ -24,6 +23,7 @@ export function AdminBottomNav({ activeKey }: Props) {
     <View style={[styles.wrap, { paddingBottom: Math.max(insets.bottom, 10) }]}>
       {items.map((item) => {
         const active = item.key === activeKey
+        const isHome = item.key === "admin"
 
         return (
           <TouchableOpacity
@@ -31,14 +31,14 @@ export function AdminBottomNav({ activeKey }: Props) {
             style={styles.item}
             onPress={() => router.replace(item.route as any)}
           >
-            <View style={[styles.iconWrap, active && styles.iconWrapActive]}>
+            <View style={[styles.iconWrap, active && styles.iconWrapActive, isHome && active && styles.homeIconWrap]}>
               <Ionicons
                 name={item.icon as keyof typeof Ionicons.glyphMap}
                 size={18}
-                color={active ? "#16324f" : "#7e8e9e"}
+                color={isHome && active ? "#FFFFFF" : active ? "#16324f" : "#7e8e9e"}
               />
             </View>
-            <Text style={[styles.label, active && styles.labelActive]}>{item.label}</Text>
+            <Text style={[styles.label, active && styles.labelActive, isHome && active && styles.homeLabelActive]}>{item.label}</Text>
           </TouchableOpacity>
         )
       })}
@@ -72,6 +72,9 @@ const styles = StyleSheet.create({
   iconWrapActive: {
     backgroundColor: AppTheme.colors.primarySoft,
   },
+  homeIconWrap: {
+    backgroundColor: AppTheme.colors.primary,
+  },
   label: {
     fontSize: 10,
     fontWeight: "700",
@@ -79,5 +82,9 @@ const styles = StyleSheet.create({
   },
   labelActive: {
     color: AppTheme.colors.primary,
+  },
+  homeLabelActive: {
+    color: AppTheme.colors.primary,
+    fontWeight: "800",
   },
 })

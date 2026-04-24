@@ -11,6 +11,7 @@ import {
 } from "react-native"
 import { useEffect, useState, useCallback } from "react"
 import { supabase } from "../../lib/supabase"
+import { supabaseAdmin } from "../../lib/supabaseAdmin"
 import { Ionicons } from "@expo/vector-icons"
 import { Picker } from "@react-native-picker/picker"
 import { SafeAreaView } from "react-native-safe-area-context"
@@ -135,8 +136,8 @@ export default function DaftarHadir() {
       { data:allDatesData },
     ] = await Promise.all([
       supabase.from("profiles").select("*").eq("role", "user"),
-      supabase.from("absensi").select("*").eq("tanggal",selectedDate),
-      supabase.from("absensi").select("tanggal").order("tanggal",{ ascending:false }),
+      supabaseAdmin.from("absensi").select("*").eq("tanggal",selectedDate),
+      supabaseAdmin.from("absensi").select("tanggal").order("tanggal",{ ascending:false }),
     ])
 
     const uniqueDates = Array.from(
@@ -203,20 +204,22 @@ export default function DaftarHadir() {
               if(existing){
                 if(existing.status === status){
                   // klik dua kali → hapus status
-                  await supabase.from("absensi")
+                  await supabaseAdmin.from("absensi")
                     .update({ status: null })
                     .eq("user_id",uid)
                     .eq("tanggal",selectedDate)
+                    .throwOnError()
 
                   setAbsensi(prev => prev.map(a =>
                     a.user_id===uid && a.tanggal === selectedDate ? {...a,status:null} : a
                   ))
                 } else {
                   // update status baru
-                  await supabase.from("absensi")
+                  await supabaseAdmin.from("absensi")
                     .update({ status })
                     .eq("user_id",uid)
                     .eq("tanggal",selectedDate)
+                    .throwOnError()
 
                   setAbsensi(prev => prev.map(a =>
                     a.user_id===uid && a.tanggal === selectedDate ? {...a,status} : a
@@ -224,7 +227,7 @@ export default function DaftarHadir() {
                 }
               } else {
                 // insert baru
-                const { data:newData } = await supabase.from("absensi").insert({
+                const { data:newData } = await supabaseAdmin.from("absensi").insert({
                   user_id:uid,
                   nama:user.nama,
                   kelas:user.kelas,
@@ -288,7 +291,7 @@ export default function DaftarHadir() {
           onPress: async () => {
             try {
               setActionLoading("reset")
-              const { error } = await supabase
+              const { error } = await supabaseAdmin
                 .from("absensi")
                 .delete()
                 .eq("kelas", selectedKelas)
@@ -302,7 +305,7 @@ export default function DaftarHadir() {
                 prev.filter(item => !(item.kelas === selectedKelas && item.tanggal === selectedDate))
               )
 
-              const { data: remainingDateData } = await supabase
+              const { data: remainingDateData } = await supabaseAdmin
                 .from("absensi")
                 .select("id")
                 .eq("tanggal", selectedDate)
@@ -335,7 +338,7 @@ export default function DaftarHadir() {
       const monthStart = `${selectedPeriodMonth}-01`
       const nextMonthStart = shiftMonthValue(selectedPeriodMonth, 1) + "-01"
 
-      const { data: monthlyAbsensi, error: monthlyAbsensiError } = await supabase
+      const { data: monthlyAbsensi, error: monthlyAbsensiError } = await supabaseAdmin
         .from("absensi")
         .select("nama, tanggal, status, created_at")
         .eq("kelas", selectedKelas)

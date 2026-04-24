@@ -87,3 +87,18 @@ export const saveImageToGallery = async (uri: string, albumName = "QRensi") => {
 
   return asset;
 };
+
+export const writeBase64ImageToCache = async (fileName: string, base64Content: string) => {
+  const directory = FileSystem.cacheDirectory || FileSystem.documentDirectory;
+
+  if (!directory) {
+    throw new Error("Direktori gambar tidak tersedia");
+  }
+
+  const fileUri = `${directory}${fileName}`;
+  await FileSystem.writeAsStringAsync(fileUri, base64Content, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+
+  return fileUri;
+};

@@ -1,10 +1,12 @@
 import { View, Text, StyleSheet, ActivityIndicator, RefreshControl } from "react-native"
 import { useEffect, useState } from "react"
 import { supabase } from "../../lib/supabase"
+import { supabaseAdmin } from "../../lib/supabaseAdmin"
 import { Ionicons } from "@expo/vector-icons"
 import { UserBottomNav } from "../../components/user-bottom-nav"
 import { useFeatureBack } from "../../hooks/use-feature-back"
 import { getLocalDateValue } from "../../lib/date"
+import { getDefaultAttendanceStatus } from "../../lib/pengajuan"
 import { AppTheme } from "../../constants/theme"
 import { InfoCard } from "../../components/ui/info-card"
 import { ModalCard } from "../../components/ui/modal-card"
@@ -16,6 +18,10 @@ export default function StatusKehadiran() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const handleBack = useFeatureBack({ fallbackRoute: "/user" })
+
+  const refreshFallbackStatus = () => {
+    setStatus((prev) => (prev === "Belum Absen" || prev === "Tidak Hadir" ? getDefaultAttendanceStatus() : prev))
+  }
 
   useEffect(() => {
     getStatus()
@@ -31,18 +37,19 @@ export default function StatusKehadiran() {
       const today = getLocalDateValue()
 
       subscription = supabase
-        .channel("public:absensi")
+        .channel(`public:absensi:${userId}`)
         .on(
           "postgres_changes",
           {
-            event: "UPDATE",
+            event: "*",
             schema: "public",
             table: "absensi",
-            filter: `user_id=eq.${userId},tanggal=eq.${today}`,
+            filter: `user_id=eq.${userId}`,
           },
           (payload) => {
-            if (payload.new) {
-              setStatus(payload.new.status)
+            const nextRow = payload.new as { status?: string; tanggal?: string } | undefined
+            if (nextRow?.tanggal === today) {
+              setStatus(nextRow.status || getDefaultAttendanceStatus())
             }
           }
         )
@@ -50,9 +57,10 @@ export default function StatusKehadiran() {
     }
 
     setupRealtime()
+    const cutoffWatcher = setInterval(refreshFallbackStatus, 30000)
 
     return () => {
-      // Unsubscribe realtime saat komponen di-unmount
+      clearInterval(cutoffWatcher)
       if (subscription) supabase.removeChannel(subscription)
     }
   }, [])
@@ -70,17 +78,17 @@ export default function StatusKehadiran() {
 
     const today = getLocalDateValue()
 
-    const { data, error } = await supabase
+    const { data, error } = await supabaseAdmin
       .from("absensi")
       .select("*")
       .eq("user_id", userId)
       .eq("tanggal", today)
-      .single()
+      .maybeSingle()
 
     if (error || !data) {
-      setStatus("Belum Absen")
+      setStatus(getDefaultAttendanceStatus())
     } else {
-      setStatus(data.status)
+      setStatus(data.status || getDefaultAttendanceStatus())
     }
 
     setLoading(false)
@@ -98,7 +106,9 @@ export default function StatusKehadiran() {
       ? { bg: "#DFF6EF", text: "#17906A", note: "Kehadiranmu sudah tercatat hari ini." }
       : normalizedStatus === "izin" || normalizedStatus === "sakit"
         ? { bg: "#FFF0D9", text: "#C67A12", note: "Status ketidakhadiran sudah diperbarui." }
-        : { bg: AppTheme.colors.primarySoft, text: AppTheme.colors.primary, note: "Silakan lakukan scan QR untuk mencatat kehadiran." }
+        : normalizedStatus === "tidak hadir"
+          ? { bg: AppTheme.colors.dangerSoft, text: AppTheme.colors.danger, note: "Batas absensi sudah lewat dan belum ada kehadiran atau izin yang disetujui." }
+          : { bg: AppTheme.colors.primarySoft, text: AppTheme.colors.primary, note: "Silakan lakukan scan QR untuk mencatat kehadiran." }
 
   return (
     <ScreenShell

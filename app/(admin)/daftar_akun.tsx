@@ -42,15 +42,25 @@ export default function DaftarAkun() {
   const [loading, setLoading] = useState(true)
   const [selectedClass, setSelectedClass] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
+  const [createModalVisible, setCreateModalVisible] = useState(false)
   const [editModalVisible, setEditModalVisible] = useState(false)
   const [editingUser, setEditingUser] = useState<Profile | null>(null)
+  const [createEmail, setCreateEmail] = useState("")
+  const [createPassword, setCreatePassword] = useState("")
+  const [createNama, setCreateNama] = useState("")
+  const [createKelas, setCreateKelas] = useState("7 Banin")
   const [editNama, setEditNama] = useState("")
   const [editKelas, setEditKelas] = useState("7 Banin")
   const [searchQuery, setSearchQuery] = useState("")
-  const [processingAction, setProcessingAction] = useState<"edit" | "delete" | "reset" | null>(null)
+  const [processingAction, setProcessingAction] = useState<"create" | "edit" | "delete" | "reset" | null>(null)
   const handleBack = useFeatureBack({
     fallbackRoute: "/admin",
     beforeBack: () => {
+      if (createModalVisible) {
+        closeCreateModal()
+        return true
+      }
+
       if (editModalVisible) {
         closeEditModal()
         return true
@@ -113,6 +123,14 @@ export default function DaftarAkun() {
     setRefreshing(false)
   }
 
+  const closeCreateModal = () => {
+    setCreateModalVisible(false)
+    setCreateEmail("")
+    setCreatePassword("")
+    setCreateNama("")
+    setCreateKelas(selectedClass || "7 Banin")
+  }
+
   const openEditModal = (user: Profile) => {
     setEditingUser(user)
     setEditNama(normalizeStudentName(user.nama))
@@ -125,6 +143,11 @@ export default function DaftarAkun() {
     setEditingUser(null)
     setEditNama("")
     setEditKelas("7 Banin")
+  }
+
+  const isValidEmail = (value: string) => {
+    const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    return regex.test(value)
   }
 
   const getExactDuplicateUser = (namaValue: string, excludeId?: string) => {
@@ -246,6 +269,107 @@ export default function DaftarAkun() {
     }
   }
 
+  const createUser = async (skipDuplicateWarning = false) => {
+    const namaBaru = normalizeStudentName(createNama)
+    const emailBaru = createEmail.trim().toLowerCase()
+
+    if (!emailBaru || !createPassword || !namaBaru || !createKelas) {
+      Alert.alert("Error", "Semua kolom harus diisi")
+      return
+    }
+
+    if (!isValidEmail(emailBaru)) {
+      Alert.alert("Error", "Format email tidak valid")
+      return
+    }
+
+    const exactDuplicate = getExactDuplicateUser(namaBaru)
+    const similarDuplicate = getSimilarDuplicateUser(namaBaru)
+
+    if (exactDuplicate && !skipDuplicateWarning) {
+      Alert.alert(
+        "Nama Sudah Terdaftar",
+        `${namaBaru} sudah terdaftar. Apakah ingin tetap melanjutkan pembuatan user?`,
+        [
+          { text: "Batal", style: "cancel" },
+          { text: "Lanjut", onPress: () => createUser(true) },
+        ]
+      )
+      return
+    }
+
+    if (similarDuplicate && !skipDuplicateWarning) {
+      Alert.alert(
+        "Nama Mirip Terdeteksi",
+        `Nama ${namaBaru} sangat mirip dengan ${normalizeStudentName(
+          similarDuplicate.nama || ""
+        )}. Periksa lagi agar tidak membuat akun ganda.`,
+        [
+          { text: "Batal", style: "cancel" },
+          { text: "Lanjut", onPress: () => createUser(true) },
+        ]
+      )
+      return
+    }
+
+    Alert.alert(
+      "Tambah Akun",
+      `Buat akun untuk ${namaBaru} dengan email ${emailBaru}?`,
+      [
+        { text: "Batal", style: "cancel" },
+        {
+          text: "Iya",
+          onPress: async () => {
+            try {
+              setProcessingAction("create")
+
+              const { data: authData, error: authError } =
+                await supabaseAdmin.auth.admin.createUser({
+                  email: emailBaru,
+                  password: createPassword,
+                  email_confirm: true,
+                  user_metadata: {
+                    full_name: namaBaru,
+                    class_name: createKelas,
+                  },
+                })
+
+              const userId = authData?.user?.id
+
+              if (authError?.message.includes("already registered")) {
+                throw new Error("Email sudah terdaftar")
+              }
+
+              if (authError) {
+                throw new Error(authError.message)
+              }
+
+              if (userId) {
+                const { error: profileError } = await supabaseAdmin.from("profiles").upsert({
+                  id: userId,
+                  role: "user",
+                  nama: namaBaru,
+                  kelas: createKelas,
+                })
+
+                if (profileError) throw new Error(profileError.message)
+              }
+
+              await getProfiles()
+              setSelectedClass(createKelas)
+              closeCreateModal()
+              Alert.alert("Berhasil", `Akun ${namaBaru} berhasil dibuat.`)
+            } catch (error: any) {
+              Alert.alert("Error", error.message || "Gagal membuat akun siswa")
+            } finally {
+              setProcessingAction(null)
+            }
+          },
+        },
+      ]
+    )
+  }
+
   const deleteUser = (user: Profile) => {
     Alert.alert(
       "Hapus Siswa",
@@ -355,11 +479,27 @@ export default function DaftarAkun() {
 
   return (
     <ScreenShell viewProps={{ style: styles.container }} footer={<AdminBottomNav activeKey="daftar_akun" />}>
-        <PageHeader eyebrow="Direktori akun" title="Daftar Akun Siswa" onBackPress={handleBack} />
+        <PageHeader
+          eyebrow="Direktori akun"
+          title="Daftar Akun Siswa"
+          onBackPress={handleBack}
+          rightSlot={
+            <TouchableOpacity
+              style={styles.addHeaderButton}
+              onPress={() => {
+                setCreateKelas(selectedClass || "7 Banin")
+                setCreateModalVisible(true)
+              }}
+              disabled={processingAction === "create"}
+            >
+              <Ionicons name="add-circle" size={24} color={AppTheme.colors.white} />
+            </TouchableOpacity>
+          }
+        />
 
         <InfoCard
           title="Pilih kelas untuk melihat akun aktif"
-          description="Data akan diperbarui otomatis saat ada perubahan profil siswa."
+          description="Data akan diperbarui otomatis saat ada perubahan profil siswa. Gunakan tombol tambah di kanan atas untuk menambah akun baru."
         />
 
         {loading ? (
@@ -463,7 +603,71 @@ export default function DaftarAkun() {
             )}
           </ScrollView>
         )}
-      
+
+      <Modal transparent animationType="fade" visible={createModalVisible} onRequestClose={closeCreateModal}>
+        <View style={styles.modalOverlay}>
+          <ModalCard>
+            <View style={styles.modalHeader}>
+              <View>
+                <Text style={styles.modalEyebrow}>Tambah akun</Text>
+                <Text style={styles.modalTitle}>Tambah Akun Siswa</Text>
+              </View>
+              <TouchableOpacity style={styles.modalClose} onPress={closeCreateModal}>
+                <Ionicons name="close" size={18} color="#16324f" />
+              </TouchableOpacity>
+            </View>
+
+            <TextInput
+              placeholder="Nama siswa"
+              placeholderTextColor="#A89F9F"
+              value={createNama}
+              onChangeText={(text) => setCreateNama(normalizeStudentName(text))}
+              style={styles.input}
+              autoCapitalize="characters"
+              autoCorrect={false}
+              autoComplete="off"
+            />
+
+            <TextInput
+              placeholder="Email"
+              placeholderTextColor="#A89F9F"
+              value={createEmail}
+              onChangeText={setCreateEmail}
+              style={styles.input}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+            />
+
+            <TextInput
+              placeholder="Password"
+              placeholderTextColor="#A89F9F"
+              value={createPassword}
+              onChangeText={setCreatePassword}
+              style={styles.input}
+              secureTextEntry
+            />
+
+            <View style={styles.pickerBox}>
+              <Picker selectedValue={createKelas} onValueChange={(value) => setCreateKelas(value)}>
+                {classes.map((kelas) => (
+                  <Picker.Item key={kelas} label={kelas} value={kelas} />
+                ))}
+              </Picker>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.saveButton, processingAction === "create" && styles.disabledButton]}
+              onPress={() => createUser()}
+              disabled={processingAction === "create"}
+            >
+              <Text style={styles.saveButtonText}>
+                {processingAction === "create" ? "Membuat..." : "Tambah Akun"}
+              </Text>
+            </TouchableOpacity>
+          </ModalCard>
+        </View>
+      </Modal>
 
       <Modal transparent animationType="fade" visible={editModalVisible} onRequestClose={closeEditModal}>
         <View style={styles.modalOverlay}>
@@ -516,6 +720,19 @@ export default function DaftarAkun() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, paddingBottom: 16 },
+  addHeaderButton: {
+    width: 42,
+    height: 42,
+    borderRadius: AppTheme.radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: AppTheme.colors.primary,
+    shadowColor: AppTheme.colors.shadow,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.18,
+    shadowRadius: 16,
+    elevation: 6,
+  },
   grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
   card: {
     width: "48%",

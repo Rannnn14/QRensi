@@ -9,6 +9,15 @@ import { AppTheme } from "../../constants/theme"
 import { SectionHeader } from "../../components/ui/section-header"
 import { getLocalDateValue } from "../../lib/date"
 import { prepareNotifications, sendLocalNotification } from "../../lib/notifications"
+import { supabaseAdmin } from "../../lib/supabaseAdmin"
+import {
+  formatSubmissionTime,
+  getDefaultAttendanceStatus,
+  getSubmissionDisplayType,
+  getSubmissionStatusLabel,
+  isTodaySubmission,
+  PASSWORD_REQUEST_TYPE,
+} from "../../lib/pengajuan"
 
 type ProfileState = {
   name: string
@@ -20,6 +29,13 @@ type AttendanceState = {
   waktu: string
 }
 
+type SubmissionState = {
+  id: string
+  jenis: string
+  status: string
+  created_at: string
+}
+
 const quickActions = [
   {
     title: "Riwayat Kehadiran",
@@ -29,7 +45,7 @@ const quickActions = [
   },
   {
     title: "Ajukan Izin",
-    description: "Laporkan ketidakhadiran",
+    description: "Izin, sakit, dan riwayat pengajuan",
     icon: "document-text-outline" as const,
     action: () => router.push("/ajuan" as any),
   },
@@ -49,15 +65,37 @@ const quickActions = [
 
 export default function User() {
   const [profile, setProfile] = useState<ProfileState>({ name: "", kelas: "-" })
-  const [attendance, setAttendance] = useState<AttendanceState>({ status: "Belum Absen", waktu: "--:--" })
+  const [attendance, setAttendance] = useState<AttendanceState>({ status: getDefaultAttendanceStatus(), waktu: "--:--" })
   const [refreshing, setRefreshing] = useState(false)
-  const [userNotice, setUserNotice] = useState("Belum ada notifikasi kehadiran baru.")
-  const [hasUnreadNotice, setHasUnreadNotice] = useState(false)
+  const [todaySubmissions, setTodaySubmissions] = useState<SubmissionState[]>([])
 
   useEffect(() => {
     prepareNotifications()
     let profileChannel: any = null
     let attendanceChannel: any = null
+    let submissionChannel: any = null
+
+    const loadTodaySubmissions = async (userId: string) => {
+      const { data: submissionData } = await supabaseAdmin
+        .from("pengajuan")
+        .select("id, jenis, status, created_at")
+        .eq("user_id", userId)
+        .neq("jenis", PASSWORD_REQUEST_TYPE)
+        .order("created_at", { ascending: false })
+
+      const filtered = (submissionData || []).filter((item) => isTodaySubmission(item.created_at))
+      setTodaySubmissions(filtered as SubmissionState[])
+    }
+
+    const applyFallbackAttendance = () => {
+      const fallbackStatus = getDefaultAttendanceStatus()
+      setAttendance((prev) =>
+        prev.status === "Belum Absen" || prev.status === "Tidak Hadir"
+          ? { ...prev, status: fallbackStatus }
+          : prev
+      )
+      setTodaySubmissions((prev) => prev.filter((item) => isTodaySubmission(item.created_at)))
+    }
 
     const loadDashboard = async () => {
       const { data } = await supabase.auth.getUser()
@@ -77,15 +115,15 @@ export default function User() {
       })
 
       const today = getLocalDateValue()
-      const { data: attendanceData } = await supabase
+      const { data: attendanceData } = await supabaseAdmin
         .from("absensi")
         .select("status, created_at")
         .eq("user_id", user.id)
         .eq("tanggal", today)
-        .single()
+        .maybeSingle()
 
       setAttendance({
-        status: attendanceData?.status || "Belum Absen",
+        status: attendanceData?.status || getDefaultAttendanceStatus(),
         waktu: attendanceData?.created_at
           ? new Date(attendanceData.created_at).toLocaleTimeString("id-ID", {
               hour: "2-digit",
@@ -94,9 +132,7 @@ export default function User() {
           : "--:--",
       })
 
-      if (attendanceData?.status) {
-        setUserNotice(`Status kehadiran hari ini: ${attendanceData.status}.`)
-      }
+      await loadTodaySubmissions(user.id)
 
       profileChannel = supabase
         .channel("realtime-user-" + user.id)
@@ -128,25 +164,37 @@ export default function User() {
               : "--:--"
 
             setAttendance({
-              status: payload.new?.status || "Belum Absen",
+              status: payload.new?.status || getDefaultAttendanceStatus(),
               waktu: latestTime,
             })
-            setUserNotice(`Kehadiran diperbarui: ${payload.new?.status || "Belum Absen"} pada ${latestTime}.`)
-            setHasUnreadNotice(true)
             sendLocalNotification(
               "Update kehadiran",
-              `Status kamu sekarang ${payload.new?.status || "Belum Absen"} pada ${latestTime}.`
+              `Status kamu sekarang ${payload.new?.status || getDefaultAttendanceStatus()} pada ${latestTime}.`
             )
+          }
+        )
+        .subscribe()
+
+      submissionChannel = supabase
+        .channel("realtime-submission-" + user.id)
+        .on(
+          "postgres_changes",
+          { event: "*", schema: "public", table: "pengajuan", filter: `user_id=eq.${user.id}` },
+          () => {
+            loadTodaySubmissions(user.id)
           }
         )
         .subscribe()
     }
 
     loadDashboard()
+    const cutoffWatcher = setInterval(applyFallbackAttendance, 30000)
 
     return () => {
+      clearInterval(cutoffWatcher)
       if (profileChannel) supabase.removeChannel(profileChannel)
       if (attendanceChannel) supabase.removeChannel(attendanceChannel)
+      if (submissionChannel) supabase.removeChannel(submissionChannel)
     }
   }, [])
 
@@ -168,15 +216,15 @@ export default function User() {
       })
 
       const today = getLocalDateValue()
-      const { data: attendanceData } = await supabase
+      const { data: attendanceData } = await supabaseAdmin
         .from("absensi")
         .select("status, created_at")
         .eq("user_id", user.id)
         .eq("tanggal", today)
-        .single()
+        .maybeSingle()
 
       setAttendance({
-        status: attendanceData?.status || "Belum Absen",
+        status: attendanceData?.status || getDefaultAttendanceStatus(),
         waktu: attendanceData?.created_at
           ? new Date(attendanceData.created_at).toLocaleTimeString("id-ID", {
               hour: "2-digit",
@@ -185,11 +233,15 @@ export default function User() {
           : "--:--",
       })
 
-      setUserNotice(
-        attendanceData?.status
-          ? `Status kehadiran hari ini: ${attendanceData.status}.`
-          : "Belum ada notifikasi kehadiran baru."
-      )
+      const { data: submissionData } = await supabaseAdmin
+        .from("pengajuan")
+        .select("id, jenis, status, created_at")
+        .eq("user_id", user.id)
+        .neq("jenis", PASSWORD_REQUEST_TYPE)
+        .order("created_at", { ascending: false })
+
+      const filtered = (submissionData || []).filter((item) => isTodaySubmission(item.created_at))
+      setTodaySubmissions(filtered as SubmissionState[])
     }
     setRefreshing(false)
   }
@@ -201,7 +253,9 @@ export default function User() {
       ? "#1e8c5d"
       : normalizedStatus === "izin" || normalizedStatus === "sakit"
         ? "#ba7412"
-        : "#22405f"
+        : normalizedStatus === "tidak hadir"
+          ? AppTheme.colors.danger
+          : "#22405f"
 
   return (
     <SafeAreaView edges={["top"]} style={styles.screen}>
@@ -212,22 +266,12 @@ export default function User() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.topRow}>
-          <View>
+          <View style={styles.topCopy}>
             <Text style={styles.brand}>QRensi</Text>
             <Text style={styles.subtitle}>Student dashboard</Text>
           </View>
 
           <View style={styles.headerActions}>
-            <TouchableOpacity
-              style={styles.iconButton}
-              onPress={() => {
-                setHasUnreadNotice(false)
-                router.push("/status_kehadiran" as any)
-              }}
-            >
-              <Ionicons name="notifications-outline" size={18} color="#22405f" />
-              {hasUnreadNotice ? <View style={styles.notificationDot} /> : null}
-            </TouchableOpacity>
             <TouchableOpacity style={styles.iconButton} onPress={onRefresh} disabled={refreshing}>
               <Ionicons
                 name={refreshing ? "hourglass-outline" : "refresh-outline"}
@@ -259,20 +303,33 @@ export default function User() {
           </View>
         </View>
 
-        <TouchableOpacity
-          style={styles.noticeCard}
-          onPress={() => {
-            setHasUnreadNotice(false)
-            router.push("/status_kehadiran" as any)
-          }}
-        >
-          <View style={styles.noticeIconWrap}>
-            <Ionicons name="notifications-outline" size={18} color="#16324f" />
+        <TouchableOpacity style={styles.noticeCard} onPress={() => router.push("/ajuan" as any)}>
+          <View style={styles.noticeHeader}>
+            <Text style={styles.noticeTitle}>Riwayat Pengajuan Hari Ini</Text>
+            <Text style={styles.noticeMeta}>{todaySubmissions.length} item</Text>
           </View>
-          <View style={styles.noticeCopy}>
-            <Text style={styles.noticeTitle}>Notifikasi siswa</Text>
-            <Text style={styles.noticeText}>{userNotice}</Text>
-          </View>
+          {todaySubmissions.length === 0 ? (
+            <Text style={styles.noticeEmpty}>
+              Belum ada pengajuan hari ini. Riwayat di kartu ini akan otomatis kosong saat berganti hari.
+            </Text>
+          ) : (
+            todaySubmissions.map((item) => (
+              <View key={item.id} style={styles.noticeItem}>
+                <View style={styles.noticeIconWrap}>
+                  <Ionicons name="document-text-outline" size={16} color="#16324f" />
+                </View>
+                <View style={styles.noticeCopy}>
+                  <Text style={styles.noticeItemTitle}>{getSubmissionDisplayType(item.jenis)}</Text>
+                  <Text style={styles.noticeText}>
+                    Status: {getSubmissionStatusLabel(item.status)}
+                  </Text>
+                  <Text style={styles.noticeText}>
+                    Jam pengajuan: {formatSubmissionTime(item.created_at)}
+                  </Text>
+                </View>
+              </View>
+            ))
+          )}
         </TouchableOpacity>
 
         <TouchableOpacity
@@ -350,14 +407,21 @@ const styles = StyleSheet.create({
   topRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
+    alignItems: "flex-start",
     gap: 12,
     marginBottom: 14,
+    flexWrap: "wrap",
+  },
+  topCopy: {
+    flex: 1,
+    minWidth: 150,
   },
   headerActions: {
     flexDirection: "row",
     alignItems: "center",
     gap: 10,
+    flexWrap: "wrap",
+    justifyContent: "flex-end",
   },
   brand: {
     ...AppTheme.typography.display,
@@ -375,15 +439,6 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     position: "relative",
-  },
-  notificationDot: {
-    position: "absolute",
-    top: 7,
-    right: 8,
-    width: 10,
-    height: 10,
-    borderRadius: AppTheme.radius.pill,
-    backgroundColor: AppTheme.colors.danger,
   },
   logoutBtn: {
     flexDirection: "row",
@@ -415,17 +470,34 @@ const styles = StyleSheet.create({
     marginTop: 16,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
+  },
+  noticeHeader: {
     flexDirection: "row",
+    justifyContent: "space-between",
     alignItems: "center",
-    gap: 12,
+    marginBottom: 12,
   },
   noticeIconWrap: {
-    width: 42,
-    height: 42,
+    width: 38,
+    height: 38,
     borderRadius: AppTheme.radius.sm,
     backgroundColor: AppTheme.colors.accentSoft,
     justifyContent: "center",
     alignItems: "center",
+  },
+  noticeMeta: {
+    color: AppTheme.colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  noticeItem: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 12,
+    paddingTop: 12,
+    paddingBottom: 2,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
   },
   noticeCopy: {
     flex: 1,
@@ -436,7 +508,17 @@ const styles = StyleSheet.create({
     fontWeight: "800",
   },
   noticeText: {
-    marginTop: 4,
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  noticeItemTitle: {
+    color: AppTheme.colors.text,
+    fontSize: 14,
+    fontWeight: "800",
+    marginBottom: 3,
+  },
+  noticeEmpty: {
     color: AppTheme.colors.textMuted,
     fontSize: 12,
     lineHeight: 18,
@@ -518,10 +600,13 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
-    gap: 10,
+    rowGap: 12,
+    columnGap: 10,
   },
   quickCard: {
-    width: "48.5%",
+    flexBasis: "48%",
+    maxWidth: "48.5%",
+    flexGrow: 1,
     backgroundColor: AppTheme.colors.surface,
     borderRadius: AppTheme.radius.lg,
     padding: 16,
