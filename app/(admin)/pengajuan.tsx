@@ -1,11 +1,10 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
   Alert,
-  ActivityIndicator,
   RefreshControl,
   Image,
   Modal,
@@ -21,13 +20,13 @@ import { ModalCard } from "../../components/ui/modal-card";
 import { PageHeader } from "../../components/ui/page-header";
 import { ScreenShell } from "../../components/ui/screen-shell";
 import {
+  cleanupExpiredSubmissions,
   formatSubmissionDateTime,
   formatSubmissionTime,
   getSubmissionDisplayNote,
   getSubmissionDisplayType,
   getSubmissionStatusLabel,
   isPasswordRequest,
-  PASSWORD_REQUEST_TYPE,
   parsePasswordRequestNote,
 } from "../../lib/pengajuan";
 
@@ -52,9 +51,12 @@ const getStatusColor = (status: string) => {
 export default function PengajuanAdmin() {
   const [pengajuanList, setPengajuanList] = useState<Pengajuan[]>([]);
   const [loading, setLoading] = useState(true);
+  const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const hasLoadedOnceRef = useRef(false);
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const handleBack = useFeatureBack({
     fallbackRoute: "/admin",
     beforeBack: () => {
@@ -98,14 +100,19 @@ export default function PengajuanAdmin() {
     return data?.signedUrl || null;
   };
 
-  const fetchPengajuan = useCallback(async () => {
-    setLoading(true);
+  const fetchPengajuan = useCallback(async (showLoader = false) => {
+    if (showLoader || !hasLoadedOnceRef.current) {
+      setLoading(true);
+    } else {
+      setBackgroundSyncing(true);
+    }
+
     try {
+      await cleanupExpiredSubmissions();
       const { data, error } = await supabaseAdmin
         .from("pengajuan")
         .select("*")
         .eq("status", "pending")
-        .neq("jenis", PASSWORD_REQUEST_TYPE)
         .order("created_at", { ascending: false });
 
       if (error) throw error;
@@ -118,25 +125,38 @@ export default function PengajuanAdmin() {
       );
 
       setPengajuanList(withProof);
+      hasLoadedOnceRef.current = true;
     } catch (err: any) {
       Alert.alert("Error", err.message);
     } finally {
       setLoading(false);
+      setBackgroundSyncing(false);
     }
   }, []);
+
+  const schedulePengajuanRefresh = useCallback(() => {
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current);
+    }
+
+    refreshTimeoutRef.current = setTimeout(() => {
+      refreshTimeoutRef.current = null;
+      fetchPengajuan(false).catch(() => undefined);
+    }, 250);
+  }, [fetchPengajuan]);
 
   useEffect(() => {
     let realtimeChannel: any;
 
     const setupRealtime = async () => {
-      await fetchPengajuan();
+      await fetchPengajuan(true);
       realtimeChannel = supabase
         .channel("public:pengajuan")
         .on(
           "postgres_changes",
           { event: "*", schema: "public", table: "pengajuan" },
           () => {
-            fetchPengajuan();
+            schedulePengajuanRefresh();
           }
         )
         .subscribe();
@@ -145,9 +165,12 @@ export default function PengajuanAdmin() {
     setupRealtime();
 
     return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current);
+      }
       if (realtimeChannel) supabase.removeChannel(realtimeChannel);
     };
-  }, [fetchPengajuan]);
+  }, [fetchPengajuan, schedulePengajuanRefresh]);
 
   const approvePengajuan = async (item: Pengajuan) => {
     Alert.alert(
@@ -261,11 +284,12 @@ export default function PengajuanAdmin() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchPengajuan();
-    setRefreshing(false);
+    try {
+      await fetchPengajuan(false);
+    } finally {
+      setRefreshing(false);
+    }
   };
-
-  if (loading) return <ActivityIndicator size="large" style={{ flex: 1 }} color="#6D3BFF" />;
 
   return (
     <ScreenShell
@@ -276,14 +300,26 @@ export default function PengajuanAdmin() {
       }}
     >
       <View style={styles.shell}>
-        <PageHeader eyebrow="Review admin" title="Daftar Pengajuan" onBackPress={handleBack} />
+        <PageHeader
+          eyebrow="Review admin"
+          title="Daftar Pengajuan"
+          onBackPress={handleBack}
+          rightSlot={
+            <View style={[styles.syncChip, backgroundSyncing && styles.syncChipActive]}>
+              <View style={[styles.syncDot, backgroundSyncing && styles.syncDotActive]} />
+              <Text style={styles.syncChipText}>
+                {backgroundSyncing ? "Menyinkronkan" : "Realtime"}
+              </Text>
+            </View>
+          }
+        />
 
         <InfoCard
           title="Permintaan yang menunggu persetujuan"
           description="Admin bisa menyetujui izin, sakit, dan permintaan ganti password dari halaman ini."
         />
 
-        {pengajuanList.length === 0 && (
+        {pengajuanList.length === 0 && !loading && (
           <Text style={styles.noDataText}>Tidak ada pengajuan pending.</Text>
         )}
 
@@ -360,6 +396,35 @@ export default function PengajuanAdmin() {
 const styles = StyleSheet.create({
   shell: { paddingBottom: 8 },
   noDataText: { textAlign: "center", fontSize: 16, color: AppTheme.colors.textMuted },
+  syncChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: AppTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  syncChipActive: {
+    backgroundColor: AppTheme.colors.primarySoft,
+    borderColor: AppTheme.colors.primarySoft,
+  },
+  syncDot: {
+    width: 8,
+    height: 8,
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.colors.success,
+  },
+  syncDotActive: {
+    backgroundColor: AppTheme.colors.primary,
+  },
+  syncChipText: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
+  },
   card: {
     backgroundColor: AppTheme.colors.surface,
     padding: 16,

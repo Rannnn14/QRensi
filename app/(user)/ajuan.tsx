@@ -6,7 +6,6 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  ActivityIndicator,
   Image,
   RefreshControl,
 } from "react-native";
@@ -22,6 +21,7 @@ import { InfoCard } from "../../components/ui/info-card";
 import { PageHeader } from "../../components/ui/page-header";
 import { ScreenShell } from "../../components/ui/screen-shell";
 import {
+  cleanupExpiredSubmissions,
   formatSubmissionDateTime,
   getSubmissionCutoffLabel,
   getSubmissionDisplayType,
@@ -63,6 +63,19 @@ const getFileExtension = (mimeType: string, uri: string) => {
 
   const uriExtension = uri.split(".").pop()?.split("?")[0]?.toLowerCase();
   return uriExtension || "jpg";
+};
+
+const isSecurityPolicyError = (error: unknown) => {
+  const message = String((error as { message?: string } | null)?.message || error || "").toLowerCase();
+  return (
+    message.includes("row-level security") ||
+    message.includes("policy") ||
+    message.includes("permission") ||
+    message.includes("not allowed") ||
+    message.includes("forbidden") ||
+    message.includes("unauthorized") ||
+    message.includes("security")
+  );
 };
 
 const getSubmissionAccess = (items: SubmissionItem[]): SubmissionAccess => {
@@ -121,12 +134,14 @@ export default function Ajuan() {
   const [jenis, setJenis] = useState<"izin" | "sakit">("izin");
   const [keterangan, setKeterangan] = useState("");
   const [loadingUser, setLoadingUser] = useState(true);
+  const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState("");
   const [selectedMimeType, setSelectedMimeType] = useState("image/jpeg");
   const [refreshing, setRefreshing] = useState(false);
   const [submissionAccess, setSubmissionAccess] = useState<SubmissionAccess>(() => getSubmissionAccess([]));
   const [isEditingPendingForm, setIsEditingPendingForm] = useState(false);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const handleBack = useFeatureBack({ fallbackRoute: "/user" });
 
   const applyPickedImage = useCallback((asset: ImagePicker.ImagePickerAsset) => {
@@ -141,6 +156,7 @@ export default function Ajuan() {
   }, []);
 
   const fetchSubmissionHistory = useCallback(async (userId: string) => {
+    await cleanupExpiredSubmissions();
     const { data, error } = await supabaseAdmin
       .from("pengajuan")
       .select("id, jenis, keterangan, status, created_at")
@@ -154,8 +170,13 @@ export default function Ajuan() {
     syncSubmissionState((data || []) as SubmissionItem[]);
   }, [syncSubmissionState]);
 
-  const fetchUser = useCallback(async () => {
+  const fetchUserProfile = useCallback(async (showLoader = false) => {
     try {
+      if (showLoader || !hasLoadedOnce) {
+        setLoadingUser(true);
+      } else {
+        setBackgroundSyncing(true);
+      }
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) throw new Error("User tidak ditemukan");
 
@@ -167,18 +188,38 @@ export default function Ajuan() {
 
       if (error) throw error;
       setUser(profile);
-      await fetchSubmissionHistory(profile.id);
     } catch (err: any) {
       Alert.alert("Error", err.message);
     } finally {
       setLoadingUser(false);
-      setRefreshing(false);
+      setBackgroundSyncing(false);
     }
-  }, [fetchSubmissionHistory]);
+  }, [hasLoadedOnce]);
+
+  const fetchUser = useCallback(async (showLoader = false) => {
+    try {
+      const { data: authData } = await supabase.auth.getUser();
+      const userId = authData.user?.id;
+
+      if (!userId) {
+        throw new Error("User tidak ditemukan");
+      }
+
+      await fetchUserProfile(showLoader);
+      await fetchSubmissionHistory(userId);
+      setHasLoadedOnce(true);
+    } catch (err: any) {
+      Alert.alert("Error", err.message);
+    } finally {
+      setRefreshing(false);
+      setBackgroundSyncing(false);
+    }
+  }, [fetchSubmissionHistory, fetchUserProfile]);
 
   useEffect(() => {
-    fetchUser();
+    fetchUser(true);
 
+    let profileChannel: any = null;
     let submissionChannel: any = null;
 
     const setupRealtime = async () => {
@@ -188,6 +229,22 @@ export default function Ajuan() {
       if (!userId) {
         return;
       }
+
+      profileChannel = supabase
+        .channel(`profile-user-${userId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "profiles",
+            filter: `id=eq.${userId}`,
+          },
+          async () => {
+            await fetchUserProfile(false);
+          }
+        )
+        .subscribe();
 
       submissionChannel = supabase
         .channel(`pengajuan-user-${userId}`)
@@ -209,11 +266,15 @@ export default function Ajuan() {
     setupRealtime();
 
     return () => {
+      if (profileChannel) {
+        supabase.removeChannel(profileChannel);
+      }
+
       if (submissionChannel) {
         supabase.removeChannel(submissionChannel);
       }
     };
-  }, [fetchSubmissionHistory, fetchUser]);
+  }, [fetchSubmissionHistory, fetchUser, fetchUserProfile]);
 
   useEffect(() => {
     if (submissionAccess.mode !== "edit-pending" || !submissionAccess.activeSubmission) {
@@ -295,7 +356,7 @@ export default function Ajuan() {
           .select("id")
           .single());
 
-        if (error && /row-level security/i.test(error.message || "")) {
+        if (error && isSecurityPolicyError(error)) {
           usedAdminClient = true;
           ({ data: savedSubmission, error } = await supabaseAdmin
             .from("pengajuan")
@@ -311,7 +372,7 @@ export default function Ajuan() {
           .select("id")
           .single());
 
-        if (error && /row-level security/i.test(error.message || "")) {
+        if (error && isSecurityPolicyError(error)) {
           usedAdminClient = true;
           ({ data: savedSubmission, error } = await supabaseAdmin
             .from("pengajuan")
@@ -334,11 +395,20 @@ export default function Ajuan() {
       if (selectedImageUri) {
         const fileExtension = getFileExtension(selectedMimeType, selectedImageUri);
         const filePath = `pengajuan/${submissionId}.${fileExtension}`;
-        const { data: signedUploadData, error: signedUploadError } = await storageClient
+        let { data: signedUploadData, error: signedUploadError } = await storageClient
           .from("bukti-ajuan")
           .createSignedUploadUrl(filePath, {
             upsert: true,
           });
+
+        if (signedUploadError && !usedAdminClient && isSecurityPolicyError(signedUploadError)) {
+          usedAdminClient = true;
+          ({ data: signedUploadData, error: signedUploadError } = await supabaseAdmin.storage
+            .from("bukti-ajuan")
+            .createSignedUploadUrl(filePath, {
+              upsert: true,
+            }));
+        }
 
         if (signedUploadError || !signedUploadData?.signedUrl) {
           if (submissionAccess.mode !== "edit-pending") {
@@ -404,7 +474,17 @@ export default function Ajuan() {
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchUser();
+    try {
+      if (user?.id) {
+        await fetchSubmissionHistory(user.id);
+      } else {
+        await fetchUser();
+      }
+    } catch (err: any) {
+      Alert.alert("Error", err.message);
+    } finally {
+      setRefreshing(false);
+    }
   };
 
   const submissionClosed = isPastSubmissionCutoff();
@@ -421,8 +501,6 @@ export default function Ajuan() {
         ? styles.statusRejected
         : styles.statusPending;
 
-  if (loadingUser) return <ActivityIndicator size="large" style={{ flex: 1 }} color="#6D3BFF" />;
-
   return (
     <ScreenShell
       scroll
@@ -433,18 +511,17 @@ export default function Ajuan() {
     >
       <View style={styles.shell}>
         <PageHeader eyebrow="Pengajuan siswa" title="Izin dan Sakit" onBackPress={handleBack} />
+        <View style={[styles.syncChip, backgroundSyncing && styles.syncChipActive]}>
+          <View style={[styles.syncDot, backgroundSyncing && styles.syncDotActive]} />
+          <Text style={styles.syncChipText}>
+            {backgroundSyncing ? "Menyinkronkan perubahan" : "Realtime aktif"}
+          </Text>
+        </View>
 
         <InfoCard
           title="Ajukan izin atau sakit"
           description={`Pengajuan izin dan sakit hanya bisa dikirim sampai jam ${getSubmissionCutoffLabel()}. Pengajuan yang masih pending bisa diedit, lalu ada maksimal 1 kesempatan tambahan setelah disetujui atau ditolak.`}
         />
-
-        <View style={styles.userInfo}>
-          <Text style={styles.userLabel}>Nama</Text>
-          <Text style={styles.userValue}>{user?.nama}</Text>
-          <Text style={[styles.userLabel, { marginTop: 12 }]}>Kelas</Text>
-          <Text style={styles.userValue}>{user?.kelas}</Text>
-        </View>
 
         <View style={styles.sectionCard}>
           <Text style={styles.sectionTitle}>Pengajuan Izin / Sakit</Text>
@@ -489,7 +566,7 @@ export default function Ajuan() {
                 <TouchableOpacity
                   style={[styles.jenisButton, jenis === "izin" && styles.jenisSelected]}
                   onPress={() => setJenis("izin")}
-                  disabled={isBlocked || submissionClosed}
+                  disabled={!user || loadingUser || isBlocked || submissionClosed}
                 >
                   <Text style={[styles.jenisText, jenis === "izin" && styles.jenisTextSelected]}>Izin</Text>
                 </TouchableOpacity>
@@ -497,7 +574,7 @@ export default function Ajuan() {
                 <TouchableOpacity
                   style={[styles.jenisButton, jenis === "sakit" && styles.jenisSelected]}
                   onPress={() => setJenis("sakit")}
-                  disabled={isBlocked || submissionClosed}
+                  disabled={!user || loadingUser || isBlocked || submissionClosed}
                 >
                   <Text style={[styles.jenisText, jenis === "sakit" && styles.jenisTextSelected]}>Sakit</Text>
                 </TouchableOpacity>
@@ -516,7 +593,7 @@ export default function Ajuan() {
                 value={keterangan}
                 onChangeText={setKeterangan}
                 multiline
-                editable={!isBlocked && !submissionClosed}
+                editable={!!user && !loadingUser && !isBlocked && !submissionClosed}
                 placeholderTextColor="#A89F9F"
               />
 
@@ -524,7 +601,7 @@ export default function Ajuan() {
               <TouchableOpacity
                 style={[styles.photoPicker, (isBlocked || submissionClosed) && styles.submitDisabled]}
                 onPress={pickImage}
-                disabled={isBlocked || submissionClosed}
+                disabled={!user || loadingUser || isBlocked || submissionClosed}
               >
                 <Ionicons name="image-outline" size={18} color="#16324f" />
                 <Text style={styles.photoPickerText}>
@@ -557,9 +634,9 @@ export default function Ajuan() {
               ) : null}
 
               <TouchableOpacity
-                style={[styles.submitButton, (submitting || isBlocked || submissionClosed) && styles.submitDisabled]}
+                style={[styles.submitButton, (!user || loadingUser || submitting || isBlocked || submissionClosed) && styles.submitDisabled]}
                 onPress={submitAjuan}
-                disabled={submitting || isBlocked || submissionClosed}
+                disabled={!user || loadingUser || submitting || isBlocked || submissionClosed}
               >
                 <Text style={styles.submitText}>
                   {submissionClosed
@@ -593,22 +670,35 @@ const styles = StyleSheet.create({
     paddingBottom: 8,
     gap: 14,
   },
-  userInfo: {
-    padding: 18,
+  syncChip: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     backgroundColor: AppTheme.colors.surface,
-    borderRadius: AppTheme.radius.lg,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
   },
-  userLabel: {
+  syncChipActive: {
+    backgroundColor: AppTheme.colors.primarySoft,
+    borderColor: AppTheme.colors.primarySoft,
+  },
+  syncDot: {
+    width: 8,
+    height: 8,
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.colors.success,
+  },
+  syncDotActive: {
+    backgroundColor: AppTheme.colors.primary,
+  },
+  syncChipText: {
     color: AppTheme.colors.textMuted,
     fontSize: 12,
-    marginBottom: 4,
-  },
-  userValue: {
-    fontSize: 18,
     fontWeight: "700",
-    color: AppTheme.colors.text,
   },
   sectionCard: {
     padding: 18,

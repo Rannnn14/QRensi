@@ -37,6 +37,7 @@ export default function DaftarHadir() {
   const [profiles,setProfiles] = useState<any[]>([])
   const [absensi,setAbsensi] = useState<any[]>([])
   const [availableDates,setAvailableDates] = useState<string[]>([])
+  const [attendanceDateStatus,setAttendanceDateStatus] = useState<Record<string, string>>({})
   const [selectedKelas,setSelectedKelas] = useState<string | null>(null)
   const [selectedDate,setSelectedDate] = useState(getLocalDateValue())
   const [calendarMonth,setCalendarMonth] = useState(getLocalMonthValue())
@@ -128,28 +129,113 @@ export default function DaftarHadir() {
     return days
   }
 
+  const getCalendarStatusColor = (status?: string | null) => {
+    if (status === "hadir") return "#22C55E"
+    if (status === "izin") return "#F59E0B"
+    if (status === "sakit") return "#EF4444"
+    if (status === "tidak hadir") return AppTheme.colors.danger
+    return "#9AA8B6"
+  }
+
+  const buildDateStatusMap = (
+    classProfiles: any[],
+    attendanceRows: Array<{ tanggal?: string | null; status?: string | null; user_id?: string | null }>
+  ) => {
+    const totalStudents = classProfiles.length
+    const grouped = new Map<string, Array<{ status?: string | null; user_id?: string | null }>>()
+
+    attendanceRows.forEach((item) => {
+      if (!item?.tanggal) return
+      const existing = grouped.get(item.tanggal) || []
+      existing.push(item)
+      grouped.set(item.tanggal, existing)
+    })
+
+    const nextMap: Record<string, string> = {}
+
+    grouped.forEach((items, tanggal) => {
+      const statuses = items.map((item) => String(item.status || "").trim().toLowerCase())
+      const uniqueUsers = new Set(items.map((item) => item.user_id).filter(Boolean))
+      const hasSakit = statuses.includes("sakit")
+      const hasIzin = statuses.includes("izin")
+      const hasTidakHadir = statuses.includes("tidak hadir") || statuses.includes("tidakhadir")
+      const hasUnknownStatus = statuses.some((status) => !status)
+      const allStudentsPresent = totalStudents > 0 && uniqueUsers.size >= totalStudents && statuses.every((status) => status === "hadir")
+
+      if (allStudentsPresent) {
+        nextMap[tanggal] = "hadir"
+        return
+      }
+
+      if (hasSakit) {
+        nextMap[tanggal] = "sakit"
+        return
+      }
+
+      if (hasIzin) {
+        nextMap[tanggal] = "izin"
+        return
+      }
+
+      if (hasTidakHadir || hasUnknownStatus || uniqueUsers.size < totalStudents) {
+        nextMap[tanggal] = "tidak hadir"
+        return
+      }
+
+      if (statuses.includes("hadir")) {
+        nextMap[tanggal] = "hadir"
+        return
+      }
+
+      nextMap[tanggal] = "tidak hadir"
+    })
+
+    return nextMap
+  }
+
   // Load data awal
   const loadData = useCallback(async () => {
+    const profilesQuery = supabase.from("profiles").select("*").eq("role", "user")
+    const selectedDateAttendanceQuery = selectedKelas
+      ? supabaseAdmin.from("absensi").select("*").eq("tanggal",selectedDate).eq("kelas", selectedKelas)
+      : supabaseAdmin.from("absensi").select("*").eq("tanggal",selectedDate)
+    const allDatesQuery = selectedKelas
+      ? supabaseAdmin.from("absensi").select("tanggal").eq("kelas", selectedKelas).order("tanggal",{ ascending:false })
+      : supabaseAdmin.from("absensi").select("tanggal").order("tanggal",{ ascending:false })
+    const classAttendanceQuery = selectedKelas
+      ? supabaseAdmin.from("absensi").select("tanggal, status, user_id").eq("kelas", selectedKelas)
+      : Promise.resolve({ data: [], error: null })
+
     const [
       { data:profileData },
       { data:absenData },
       { data:allDatesData },
+      classAttendanceResult,
     ] = await Promise.all([
-      supabase.from("profiles").select("*").eq("role", "user"),
-      supabaseAdmin.from("absensi").select("*").eq("tanggal",selectedDate),
-      supabaseAdmin.from("absensi").select("tanggal").order("tanggal",{ ascending:false }),
+      profilesQuery,
+      selectedDateAttendanceQuery,
+      allDatesQuery,
+      classAttendanceQuery,
     ])
 
     const uniqueDates = Array.from(
       new Set([today, ...(allDatesData || []).map(item => item.tanggal).filter(Boolean)])
     ).sort((a,b) => b.localeCompare(a))
 
+    const allProfiles = profileData || []
+    const classProfiles = selectedKelas
+      ? allProfiles.filter(profile => profile.kelas === selectedKelas)
+      : []
+
     setProfiles(
-      [...(profileData || [])].sort((a, b) => compareStudentNames(a.nama, b.nama))
+      [...allProfiles].sort((a, b) => compareStudentNames(a.nama, b.nama))
     )
     setAbsensi(absenData || [])
     setAvailableDates(uniqueDates)
-  }, [selectedDate, today])
+    setAttendanceDateStatus(
+      selectedKelas ? buildDateStatusMap(classProfiles, classAttendanceResult.data || []) : {}
+    )
+  }, [selectedDate, selectedKelas, today])
 
   useEffect(()=>{
     loadData()
@@ -523,6 +609,7 @@ export default function DaftarHadir() {
 
                   const isSelected = selectedDate === item
                   const hasData = availableDates.includes(item)
+                  const dotColor = getCalendarStatusColor(attendanceDateStatus[item])
 
                   return (
                     <TouchableOpacity
@@ -533,7 +620,7 @@ export default function DaftarHadir() {
                       <Text style={[styles.calendarCellText, isSelected && styles.calendarCellTextActive]}>
                         {item.slice(-2).replace(/^0/, "")}
                       </Text>
-                      {hasData ? <View style={[styles.calendarDot, isSelected && styles.calendarDotActive]} /> : null}
+                      {hasData ? <View style={[styles.calendarDot, { backgroundColor: dotColor }, isSelected && styles.calendarDotActive]} /> : null}
                     </TouchableOpacity>
                   )
                 })}
@@ -739,6 +826,7 @@ export default function DaftarHadir() {
 
                 const isSelected = selectedDate === item
                 const hasData = availableDates.includes(item)
+                const dotColor = getCalendarStatusColor(attendanceDateStatus[item])
 
                 return (
                   <TouchableOpacity
@@ -749,7 +837,7 @@ export default function DaftarHadir() {
                     <Text style={[styles.calendarCellText, isSelected && styles.calendarCellTextActive]}>
                       {item.slice(-2).replace(/^0/, "")}
                     </Text>
-                    {hasData ? <View style={[styles.calendarDot, isSelected && styles.calendarDotActive]} /> : null}
+                    {hasData ? <View style={[styles.calendarDot, { backgroundColor: dotColor }, isSelected && styles.calendarDotActive]} /> : null}
                   </TouchableOpacity>
                 )
               })}

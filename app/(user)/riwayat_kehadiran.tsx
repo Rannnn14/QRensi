@@ -2,13 +2,13 @@ import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   RefreshControl,
   TouchableOpacity,
   Modal,
 } from "react-native"
 import { useEffect, useState, useCallback } from "react"
 import { supabase } from "../../lib/supabase"
+import { supabaseAdmin } from "../../lib/supabaseAdmin"
 import { Ionicons } from "@expo/vector-icons"
 import { Picker } from "@react-native-picker/picker"
 import { UserBottomNav } from "../../components/user-bottom-nav"
@@ -28,9 +28,16 @@ type AttendanceItem = {
   status?: string | null
 }
 
+type AttendanceStatus =
+  | "hadir"
+  | "izin"
+  | "sakit"
+  | "tidak hadir"
+  | "belum ada data"
+
 export default function RiwayatKehadiran() {
   const [data, setData] = useState<AttendanceItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const [availableDates, setAvailableDates] = useState<string[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [calendarVisible, setCalendarVisible] = useState(false)
   const [selectedDate, setSelectedDate] = useState(getLocalDateValue())
@@ -47,34 +54,103 @@ export default function RiwayatKehadiran() {
     },
   })
 
-  const getRiwayat = useCallback(async () => {
-    const { data: userData } = await supabase.auth.getUser()
-    const userId = userData?.user?.id
+  const normalizeAttendanceStatus = useCallback((status?: string | null) => {
+    const normalized = String(status || "").trim().toLowerCase()
 
-    if (!userId) {
-      setLoading(false)
-      setRefreshing(false)
-      return
+    if (normalized === "hadir" || normalized === "izin" || normalized === "sakit") {
+      return normalized
     }
 
-    const { data: attendanceData, error } = await supabase
-      .from("absensi")
-      .select("*")
-      .eq("user_id", userId)
-      .order("tanggal", { ascending: false })
-
-    if (!error && attendanceData) {
-      const filtered = attendanceData.filter((item) => item.status && item.status !== "Belum Absen")
-      setData(filtered)
-
-      if (filtered.length) {
-        setSelectedDate((prev) => prev || filtered[0].tanggal)
-      }
+    if (normalized === "tidak hadir" || normalized === "tidakhadir") {
+      return "tidak hadir"
     }
 
-    setLoading(false)
-    setRefreshing(false)
+    if (normalized === "belum ada data" || normalized === "belumadadata") {
+      return "belum ada data"
+    }
+
+    return normalized || null
   }, [])
+
+  const resolveAttendanceStatus = useCallback(
+    (item?: { status?: string | null; tanggal?: string } | null, tanggal?: string): AttendanceStatus => {
+      const normalized = normalizeAttendanceStatus(item?.status)
+
+      if (normalized === "hadir" || normalized === "izin" || normalized === "sakit" || normalized === "tidak hadir") {
+        return normalized
+      }
+
+      const targetDate = tanggal || item?.tanggal
+      if (!targetDate) {
+        return "tidak hadir"
+      }
+
+      const today = getLocalDateValue()
+      if (targetDate > today) {
+        return "belum ada data"
+      }
+
+      return "tidak hadir"
+    },
+    [normalizeAttendanceStatus]
+  )
+
+  const getRiwayat = useCallback(async () => {
+    try {
+      const { data: userData } = await supabase.auth.getUser()
+      const userId = userData?.user?.id
+
+      if (!userId) {
+        setData([])
+        setAvailableDates([])
+        setRefreshing(false)
+        return
+      }
+
+      const { data: attendanceData, error } = await supabaseAdmin
+        .from("absensi")
+        .select("id, tanggal, status, waktu, created_at")
+        .eq("user_id", userId)
+        .order("tanggal", { ascending: false })
+
+      if (error) {
+        throw error
+      }
+
+      const normalized = (attendanceData || []).map((item) => ({
+        id: item.id,
+        tanggal: item.tanggal,
+        waktu: item.waktu
+          ? String(item.waktu).slice(0, 5)
+          : item.created_at
+          ? new Date(item.created_at).toLocaleTimeString("id-ID", {
+              hour: "2-digit",
+              minute: "2-digit",
+            })
+          : null,
+        status: resolveAttendanceStatus(item, item.tanggal),
+      }))
+
+      const nextAvailableDates = normalized.map((item) => item.tanggal)
+      setData(normalized)
+      setAvailableDates(nextAvailableDates)
+
+      if (normalized.length > 0) {
+        setSelectedDate((prev) => (nextAvailableDates.includes(prev) ? prev : normalized[0].tanggal))
+        setCalendarMonth((prev) => prev || normalized[0].tanggal.slice(0, 7))
+      } else {
+        const today = getLocalDateValue()
+        setSelectedDate(today)
+        setCalendarMonth((prev) => prev || today.slice(0, 7))
+      }
+    } catch (error) {
+      console.log("Gagal memuat riwayat kehadiran:", error)
+      setData([])
+      setAvailableDates([])
+    } finally {
+      setRefreshing(false)
+    }
+  }, [resolveAttendanceStatus])
 
   useEffect(() => {
     getRiwayat()
@@ -109,10 +185,6 @@ export default function RiwayatKehadiran() {
     }
   }, [getRiwayat])
 
-  useEffect(() => {
-    setCalendarMonth(selectedDate.slice(0, 7))
-  }, [selectedDate])
-
   const onRefresh = () => {
     setRefreshing(true)
     getRiwayat()
@@ -133,7 +205,7 @@ export default function RiwayatKehadiran() {
     })
 
   const changeMonth = (offset: number) => {
-    setCalendarMonth(shiftMonthValue(calendarMonth, offset))
+    setCalendarMonth((prev) => shiftMonthValue(prev, offset))
   }
 
   const handleMonthPickerChange = (monthNumber: number) => {
@@ -169,21 +241,56 @@ export default function RiwayatKehadiran() {
   }
 
   const getStatusColor = (status: string | null | undefined) => {
-    const normalized = String(status || "").toLowerCase()
+    const normalized = resolveAttendanceStatus(status ? { status } : null)
     if (normalized === "hadir") return "#22C55E"
     if (normalized === "izin") return "#F59E0B"
     if (normalized === "sakit") return "#EF4444"
+    if (normalized === "tidak hadir") return AppTheme.colors.danger
+    if (normalized === "belum ada data") return AppTheme.colors.textMuted
     return "#94A3B8"
   }
 
   const getStatusLabel = (status: string | null | undefined) => {
-    if (!status) return "Tidak Hadir"
-    return status.charAt(0).toUpperCase() + status.slice(1)
+    const normalized = resolveAttendanceStatus(status ? { status } : null)
+    if (normalized === "hadir") return "Hadir"
+    if (normalized === "izin") return "Izin"
+    if (normalized === "sakit") return "Sakit"
+    if (normalized === "belum ada data") return "Belum Ada Data"
+    return "Tidak Hadir"
   }
 
-  const getAttendanceByDate = (tanggal: string) => data.find((item) => item.tanggal === tanggal)
+  const getAttendanceByDate = (tanggal: string) => {
+    const found = data.find((item) => item.tanggal === tanggal)
+
+    if (found) {
+      return {
+        ...found,
+        status: resolveAttendanceStatus(found, tanggal),
+      }
+    }
+
+    return {
+      id: `fallback-${tanggal}`,
+      tanggal,
+      waktu: null,
+      status: resolveAttendanceStatus(null, tanggal),
+    }
+  }
 
   const selectedAttendance = getAttendanceByDate(selectedDate)
+  const openCalendar = () => {
+    setCalendarMonth(selectedDate.slice(0, 7))
+    setCalendarVisible(true)
+  }
+
+  const selectDate = (dateValue: string, closeAfterSelect = false) => {
+    setSelectedDate(dateValue)
+    setCalendarMonth(dateValue.slice(0, 7))
+
+    if (closeAfterSelect) {
+      setCalendarVisible(false)
+    }
+  }
 
   return (
     <ScreenShell
@@ -201,27 +308,18 @@ export default function RiwayatKehadiran() {
             description="Pilih bulan dari kalender untuk melihat status hadir, izin, sakit, atau tidak hadir."
           />
 
-          {loading ? (
-            <ActivityIndicator size="large" color="#6D3BFF" style={{ marginTop: 40 }} />
-          ) : (
-            <>
-              <View style={styles.summaryCard}>
-                <Text style={styles.summaryLabel}>Periode aktif</Text>
-                <Text style={styles.summaryValue}>{formatMonthLabel(selectedDate.slice(0, 7))}</Text>
-                <TouchableOpacity
-                  style={styles.secondaryAction}
-                  onPress={() => {
-                    setCalendarMonth(selectedDate.slice(0, 7))
-                    setCalendarVisible(true)
-                  }}
-                >
-                  <Ionicons name="calendar-outline" size={18} color="#16324f" />
-                  <Text style={styles.secondaryActionText}>Pilih Bulan</Text>
-                </TouchableOpacity>
-              </View>
+          <>
               <View style={styles.detailCard}>
-                <Text style={styles.detailLabel}>Tanggal dipilih</Text>
-                <Text style={styles.detailDate}>{formatTanggal(selectedDate)}</Text>
+                <View style={styles.detailHeaderRow}>
+                  <View style={styles.detailHeaderCopy}>
+                    <Text style={styles.detailLabel}>Tanggal dipilih</Text>
+                    <Text style={styles.detailDate}>{formatTanggal(selectedDate)}</Text>
+                  </View>
+                  <TouchableOpacity style={styles.secondaryActionInline} onPress={openCalendar}>
+                    <Ionicons name="calendar-outline" size={18} color="#16324f" />
+                    <Text style={styles.secondaryActionText}>Pilih Bulan</Text>
+                  </TouchableOpacity>
+                </View>
                 <View style={[styles.statusBadge, { backgroundColor: `${getStatusColor(selectedAttendance?.status)}22` }]}>
                   <Text style={[styles.statusBadgeText, { color: getStatusColor(selectedAttendance?.status) }]}>
                     {getStatusLabel(selectedAttendance?.status)}
@@ -246,25 +344,25 @@ export default function RiwayatKehadiran() {
                     }
 
                     const selected = selectedDate === item
-                    const itemStatus = getAttendanceByDate(item)?.status
+                    const hasData = availableDates.includes(item)
+                    const itemStatus = hasData ? getAttendanceByDate(item)?.status : null
 
                     return (
                       <TouchableOpacity
                         key={item}
                         style={[styles.calendarCell, selected && styles.calendarCellActive]}
-                        onPress={() => setSelectedDate(item)}
+                        onPress={() => selectDate(item)}
                       >
                         <Text style={[styles.calendarCellText, selected && styles.calendarCellTextActive]}>
                           {item.slice(-2).replace(/^0/, "")}
                         </Text>
-                        <View style={[styles.calendarDot, { backgroundColor: getStatusColor(itemStatus) }]} />
+                        {hasData ? <View style={[styles.calendarDot, { backgroundColor: getStatusColor(itemStatus) }]} /> : null}
                       </TouchableOpacity>
                     )
                   })}
                 </View>
               </View>
-            </>
-          )}
+          </>
         </View>
       
 
@@ -327,21 +425,19 @@ export default function RiwayatKehadiran() {
                 }
 
                 const selected = selectedDate === item
-                const itemStatus = getAttendanceByDate(item)?.status
+                const hasData = availableDates.includes(item)
+                const itemStatus = hasData ? getAttendanceByDate(item)?.status : null
 
                 return (
                   <TouchableOpacity
                     key={item}
                     style={[styles.calendarCell, selected && styles.calendarCellActive]}
-                    onPress={() => {
-                      setSelectedDate(item)
-                      setCalendarVisible(false)
-                    }}
+                    onPress={() => selectDate(item, true)}
                   >
                     <Text style={[styles.calendarCellText, selected && styles.calendarCellTextActive]}>
                       {item.slice(-2).replace(/^0/, "")}
                     </Text>
-                    <View style={[styles.calendarDot, { backgroundColor: getStatusColor(itemStatus) }]} />
+                    {hasData ? <View style={[styles.calendarDot, { backgroundColor: getStatusColor(itemStatus) }]} /> : null}
                   </TouchableOpacity>
                 )
               })}
@@ -357,31 +453,14 @@ const styles = StyleSheet.create({
   shell: {
     paddingBottom: 8,
   },
-  summaryCard: {
-    backgroundColor: AppTheme.colors.surface,
-    borderRadius: AppTheme.radius.lg,
-    padding: 18,
-    marginBottom: 14,
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-  },
-  summaryLabel: {
-    color: AppTheme.colors.textMuted,
-    marginBottom: 6,
-  },
-  summaryValue: {
-    color: AppTheme.colors.text,
-    fontSize: 24,
-    fontWeight: "800",
-    marginBottom: 14,
-  },
-  secondaryAction: {
+  secondaryActionInline: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
     backgroundColor: AppTheme.colors.primarySoft,
     borderRadius: AppTheme.radius.sm,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
     gap: 8,
   },
   secondaryActionText: {
@@ -396,6 +475,16 @@ const styles = StyleSheet.create({
     borderColor: AppTheme.colors.border,
     marginBottom: 14,
   },
+  detailHeaderRow: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 12,
+    marginBottom: 10,
+  },
+  detailHeaderCopy: {
+    flex: 1,
+  },
   detailLabel: {
     color: AppTheme.colors.textMuted,
     fontSize: 12,
@@ -405,7 +494,6 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.text,
     fontSize: 16,
     fontWeight: "800",
-    marginBottom: 10,
   },
   detailTime: {
     color: AppTheme.colors.textMuted,

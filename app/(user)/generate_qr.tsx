@@ -3,7 +3,6 @@ import {
   View,
   Text,
   StyleSheet,
-  ActivityIndicator,
   TouchableOpacity,
   Alert,
   Platform,
@@ -28,7 +27,6 @@ type Profile = {
 export default function GenerateQR() {
 
   const [profile, setProfile] = useState<Profile | null>(null);
-  const [loading, setLoading] = useState(true);
   const [downloading, setDownloading] = useState(false);
 
   const qrCodeRef = useRef<any>(null);
@@ -38,23 +36,45 @@ export default function GenerateQR() {
   // FETCH PROFILE
   // ======================
   const fetchProfile = async () => {
-    setLoading(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (user) {
-        const { data, error } = await supabase
-          .from("profiles")
-          .select("id,nama,kelas")
-          .eq("id", user.id)
-          .single();
-        if (error) throw error;
-        setProfile(data);
+      if (!user) {
+        setProfile(null);
+        return;
       }
+
+      const fallbackName = user.email ? user.email.split("@")[0] : "Siswa";
+      const fallbackClass = String(user.user_metadata?.class_name || user.user_metadata?.kelas || "-");
+
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("id,nama,kelas")
+        .eq("id", user.id)
+        .maybeSingle();
+
+      if (error) {
+        throw error;
+      }
+
+      setProfile({
+        id: user.id,
+        nama: data?.nama || fallbackName,
+        kelas: data?.kelas || fallbackClass,
+      });
     } catch (err: any) {
       console.log(err.message || err);
-      setProfile(null);
+      const { data: { user } } = await supabase.auth.getUser();
+
+      if (user) {
+        setProfile({
+          id: user.id,
+          nama: user.email ? user.email.split("@")[0] : "Siswa",
+          kelas: String(user.user_metadata?.class_name || user.user_metadata?.kelas || "-"),
+        });
+      } else {
+        setProfile(null);
+      }
     }
-    setLoading(false);
   };
 
   // ======================
@@ -69,6 +89,7 @@ export default function GenerateQR() {
     try {
       setDownloading(true);
 
+      const fileName = `qr_${profile?.nama?.replace(/\s+/g, "_").toLowerCase() || "siswa"}.png`;
       const qrBase64 = await new Promise<string>((resolve, reject) => {
         try {
           qrCodeRef.current?.toDataURL?.((data: string) => {
@@ -84,35 +105,30 @@ export default function GenerateQR() {
         }
       });
 
-      if (!qrBase64) {
-        Alert.alert("Gagal mengambil QR");
-        return;
-      }
-
       if (Platform.OS === "web") {
         const response = await fetch(`data:image/png;base64,${qrBase64}`);
         const blob = await response.blob();
         const url = URL.createObjectURL(blob);
         const anchor = document.createElement("a");
         anchor.href = url;
-        anchor.download = `qr_${profile?.nama?.replace(/\s+/g, "_").toLowerCase() || "siswa"}.png`;
+        anchor.download = fileName;
         document.body.appendChild(anchor);
         anchor.click();
         document.body.removeChild(anchor);
         URL.revokeObjectURL(url);
       } else {
-        const uri = await writeBase64ImageToCache(
-          `qr_${profile?.nama?.replace(/\s+/g, "_").toLowerCase() || "siswa"}.png`,
-          qrBase64
-        );
-        await saveImageToGallery(uri);
+        const tempUri = await writeBase64ImageToCache(fileName, qrBase64);
+        await saveImageToGallery(tempUri);
+
+        Alert.alert("Berhasil", "QR berhasil disimpan ke galeri.");
+        return;
       }
 
       Alert.alert("Berhasil", "QR berhasil disimpan ke galeri.");
 
-    } catch (err) {
+    } catch (err: any) {
       console.log(err);
-      Alert.alert("Gagal menyimpan QR");
+      Alert.alert("Gagal menyimpan QR", err?.message || "Terjadi kesalahan saat menyimpan QR.");
     } finally {
       setDownloading(false);
     }
@@ -155,19 +171,6 @@ export default function GenerateQR() {
   // ======================
   // LOADING
   // ======================
-  if (loading)
-    return <ActivityIndicator size="large" style={{ flex: 1 }} />;
-
-  if (!profile)
-    return (
-      <View style={styles.empty}>
-        <Text>Tidak ada data QR untuk akun ini.</Text>
-      </View>
-    );
-
-  // ======================
-  // UI
-  // ======================
   return (
     <ScreenShell scroll footer={<UserBottomNav activeKey="generate_qr" />}>
         <View style={styles.shell}>
@@ -180,27 +183,41 @@ export default function GenerateQR() {
 
         <View style={styles.card}>
           <Text style={styles.title}>KARTU QR SISWA</Text>
-          <Text style={styles.name}>{profile.nama}</Text>
-          <Text style={styles.kelas}>{profile.kelas}</Text>
+          <Text style={styles.name}>{profile?.nama || "-"}</Text>
+          <Text style={styles.kelas}>{profile?.kelas || "-"}</Text>
           <View style={styles.qrBox}>
-            <QRCode
-              value={profile.id}
-              size={200}
-              getRef={(ref) => {
-                qrCodeRef.current = ref;
-              }}
-            />
+            {profile ? (
+              <QRCode
+                value={profile.id}
+                size={200}
+                getRef={(ref) => {
+                  qrCodeRef.current = ref;
+                }}
+              />
+            ) : (
+              <View style={styles.qrPlaceholder}>
+                <Text style={styles.qrPlaceholderText}>
+                  QR belum tersedia
+                </Text>
+              </View>
+            )}
           </View>
-          <Text style={styles.caption}>Cetak QR ini dan simpan di holder kartu siswa untuk pemindaian harian.</Text>
+          <Text style={styles.caption}>
+            {profile
+              ? "Cetak QR ini dan simpan di holder kartu siswa untuk pemindaian harian."
+              : "Tidak dapat memuat data QR untuk akun ini."}
+          </Text>
         </View>
 
         <View style={styles.buttonRow}>
           <TouchableOpacity
-            style={[styles.button, downloading && { opacity: 0.5 }]}
+            style={[styles.button, (downloading || !profile) && { opacity: 0.5 }]}
             onPress={downloadQR}
-            disabled={downloading}
+            disabled={downloading || !profile}
           >
-            <Text style={styles.buttonText}>{downloading ? "Mengunduh..." : "Unduh QR"}</Text>
+            <Text style={styles.buttonText}>
+              {downloading ? "Mengunduh..." : "Unduh QR"}
+            </Text>
           </TouchableOpacity>
         </View>
         </View>
@@ -228,6 +245,19 @@ const styles = StyleSheet.create({
   name: { fontSize: 20, fontWeight: "bold", color: AppTheme.colors.text },
   kelas: { fontSize: 14, color: AppTheme.colors.textMuted, marginBottom: 15 },
   qrBox: { padding: 14, backgroundColor: AppTheme.colors.surface, borderRadius: AppTheme.radius.md },
+  qrPlaceholder: {
+    width: 200,
+    height: 200,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: AppTheme.colors.surfaceMuted,
+    borderRadius: AppTheme.radius.md,
+    paddingHorizontal: 20,
+  },
+  qrPlaceholderText: {
+    color: AppTheme.colors.textMuted,
+    textAlign: "center",
+  },
   caption: {
     marginTop: 14,
     textAlign: "center",
@@ -247,5 +277,4 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.md
   },
   buttonText: { color: AppTheme.colors.white, fontWeight: "bold", fontSize: 15 },
-  empty: { flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: AppTheme.colors.background }
 });

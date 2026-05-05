@@ -4,7 +4,6 @@ import {
   StyleSheet,
   TouchableOpacity,
   ScrollView,
-  ActivityIndicator,
   RefreshControl,
   Alert,
   Modal,
@@ -28,18 +27,19 @@ import {
   isStudentNameVerySimilar,
   matchesStudentSearch,
   normalizeStudentName,
+  normalizeStudentNisn,
 } from "../../lib/student"
 
 type Profile = {
   id: string
   nama: string
   kelas: string
+  nisn?: string | null
   role?: string
 }
 
 export default function DaftarAkun() {
   const [profiles, setProfiles] = useState<Profile[]>([])
-  const [loading, setLoading] = useState(true)
   const [selectedClass, setSelectedClass] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [createModalVisible, setCreateModalVisible] = useState(false)
@@ -48,6 +48,7 @@ export default function DaftarAkun() {
   const [createEmail, setCreateEmail] = useState("")
   const [createPassword, setCreatePassword] = useState("")
   const [createNama, setCreateNama] = useState("")
+  const [createNisn, setCreateNisn] = useState("")
   const [createKelas, setCreateKelas] = useState("7 Banin")
   const [editNama, setEditNama] = useState("")
   const [editKelas, setEditKelas] = useState("7 Banin")
@@ -89,7 +90,6 @@ export default function DaftarAkun() {
       )
     }
 
-    setLoading(false)
   }, [])
 
   useEffect(() => {
@@ -128,6 +128,7 @@ export default function DaftarAkun() {
     setCreateEmail("")
     setCreatePassword("")
     setCreateNama("")
+    setCreateNisn("")
     setCreateKelas(selectedClass || "7 Banin")
   }
 
@@ -220,6 +221,8 @@ export default function DaftarAkun() {
             user_metadata: {
               full_name: namaBaru,
               class_name: editKelas,
+              kelas: editKelas,
+              role: "user",
             },
           })
 
@@ -271,9 +274,10 @@ export default function DaftarAkun() {
 
   const createUser = async (skipDuplicateWarning = false) => {
     const namaBaru = normalizeStudentName(createNama)
+    const nisnBaru = normalizeStudentNisn(createNisn)
     const emailBaru = createEmail.trim().toLowerCase()
 
-    if (!emailBaru || !createPassword || !namaBaru || !createKelas) {
+    if (!emailBaru || !createPassword || !namaBaru || !nisnBaru || !createKelas) {
       Alert.alert("Error", "Semua kolom harus diisi")
       return
     }
@@ -283,17 +287,17 @@ export default function DaftarAkun() {
       return
     }
 
-    const exactDuplicate = getExactDuplicateUser(namaBaru)
+    const duplicateNisn = profiles.find(
+      (item) => normalizeStudentNisn(item.nisn || "") === nisnBaru
+    )
     const similarDuplicate = getSimilarDuplicateUser(namaBaru)
 
-    if (exactDuplicate && !skipDuplicateWarning) {
+    if (duplicateNisn) {
       Alert.alert(
-        "Nama Sudah Terdaftar",
-        `${namaBaru} sudah terdaftar. Apakah ingin tetap melanjutkan pembuatan user?`,
-        [
-          { text: "Batal", style: "cancel" },
-          { text: "Lanjut", onPress: () => createUser(true) },
-        ]
+        "NISN Sudah Terdaftar",
+        `NISN ${nisnBaru} sudah terdaftar pada akun ${normalizeStudentName(
+          duplicateNisn.nama || ""
+        )}.`
       )
       return
     }
@@ -331,6 +335,9 @@ export default function DaftarAkun() {
                   user_metadata: {
                     full_name: namaBaru,
                     class_name: createKelas,
+                    kelas: createKelas,
+                    nisn: nisnBaru,
+                    role: "user",
                   },
                 })
 
@@ -350,6 +357,7 @@ export default function DaftarAkun() {
                   role: "user",
                   nama: namaBaru,
                   kelas: createKelas,
+                  nisn: nisnBaru,
                 })
 
                 if (profileError) throw new Error(profileError.message)
@@ -502,13 +510,10 @@ export default function DaftarAkun() {
           description="Data akan diperbarui otomatis saat ada perubahan profil siswa. Gunakan tombol tambah di kanan atas untuk menambah akun baru."
         />
 
-        {loading ? (
-          <ActivityIndicator size="large" color="#6D3BFF" />
-        ) : (
-          <ScrollView
-            showsVerticalScrollIndicator={false}
-            refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-          >
+        <ScrollView
+          showsVerticalScrollIndicator={false}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+        >
             <View style={styles.grid}>
               {classes.map((kelas) => {
                 const jumlah = profiles.filter((user) => user.kelas === kelas).length
@@ -602,7 +607,6 @@ export default function DaftarAkun() {
               </View>
             )}
           </ScrollView>
-        )}
 
       <Modal transparent animationType="fade" visible={createModalVisible} onRequestClose={closeCreateModal}>
         <View style={styles.modalOverlay}>
@@ -624,6 +628,17 @@ export default function DaftarAkun() {
               onChangeText={(text) => setCreateNama(normalizeStudentName(text))}
               style={styles.input}
               autoCapitalize="characters"
+              autoCorrect={false}
+              autoComplete="off"
+            />
+
+            <TextInput
+              placeholder="NISN"
+              placeholderTextColor="#A89F9F"
+              value={createNisn}
+              onChangeText={(text) => setCreateNisn(normalizeStudentNisn(text))}
+              style={styles.input}
+              keyboardType="number-pad"
               autoCorrect={false}
               autoComplete="off"
             />

@@ -19,12 +19,14 @@ import { ScreenShell } from "../../components/ui/screen-shell"
 import {
   isStudentNameVerySimilar,
   normalizeStudentName,
+  normalizeStudentNisn,
 } from "../../lib/student"
 
 export default function TambahUser() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [nama, setNama] = useState("")
+  const [nisn, setNisn] = useState("")
   const [kelas, setKelas] = useState("7 Banin")
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
@@ -38,7 +40,7 @@ export default function TambahUser() {
   }
 
   const createUser = async () => {
-    if (!email || !password || !nama || !kelas) {
+    if (!email || !password || !nama || !nisn || !kelas) {
       Alert.alert("Error", "Semua kolom harus diisi")
       return
     }
@@ -49,6 +51,12 @@ export default function TambahUser() {
     }
 
     const namaUppercase = normalizeStudentName(nama)
+    const normalizedNisn = normalizeStudentNisn(nisn)
+
+    if (!normalizedNisn) {
+      Alert.alert("Error", "NISN wajib diisi")
+      return
+    }
 
     const proceedCreateUser = async () => {
       setLoading(true)
@@ -62,6 +70,9 @@ export default function TambahUser() {
             user_metadata: {
               full_name: namaUppercase,
               class_name: kelas,
+              kelas,
+              nisn: normalizedNisn,
+              role: "user",
             },
           })
 
@@ -81,6 +92,7 @@ export default function TambahUser() {
             role: "user",
             nama: namaUppercase,
             kelas,
+            nisn: normalizedNisn,
           })
 
           if (profileError) throw new Error(profileError.message)
@@ -90,6 +102,7 @@ export default function TambahUser() {
         setEmail("")
         setPassword("")
         setNama("")
+        setNisn("")
         setKelas("7 Banin")
       } catch (err: any) {
         Alert.alert("Error", err.message || "Terjadi kesalahan")
@@ -100,7 +113,7 @@ export default function TambahUser() {
 
     const { data: existingUsers, error: duplicateError } = await supabaseAdmin
       .from("profiles")
-      .select("id, nama")
+      .select("id, nama, nisn")
       .eq("role", "user")
 
     if (duplicateError) {
@@ -108,24 +121,23 @@ export default function TambahUser() {
       return
     }
 
-    const exactDuplicate = existingUsers?.find(
-      (item) => normalizeStudentName(item.nama || "") === namaUppercase
+    const duplicateNisn = existingUsers?.find(
+      (item) => normalizeStudentNisn(item.nisn || "") === normalizedNisn
     )
     const similarDuplicate = existingUsers?.find(
       (item) =>
+        normalizeStudentNisn(item.nisn || "") !== normalizedNisn &&
         normalizeStudentName(item.nama || "") !== namaUppercase &&
         isStudentNameVerySimilar(item.nama || "", namaUppercase)
     )
 
     const continueAfterWarning = async () => {
-      if (exactDuplicate) {
+      if (duplicateNisn) {
         Alert.alert(
-          "Nama Sudah Terdaftar",
-          `${namaUppercase} sudah terdaftar. Apakah ingin tetap melanjutkan pembuatan user?`,
-          [
-            { text: "Batal", style: "cancel" },
-            { text: "Lanjut", onPress: proceedCreateUser },
-          ]
+          "NISN Sudah Terdaftar",
+          `NISN ${normalizedNisn} sudah terdaftar pada akun ${normalizeStudentName(
+            duplicateNisn.nama || ""
+          )}.`
         )
         return
       }
@@ -193,6 +205,15 @@ export default function TambahUser() {
             value={nama}
             onChangeText={handleNamaChange}
             autoCapitalize="characters"
+            autoCorrect={false}
+            autoComplete="off"
+          />
+
+          <AppInput
+            placeholder="NISN"
+            value={nisn}
+            onChangeText={(text) => setNisn(normalizeStudentNisn(text))}
+            keyboardType="number-pad"
             autoCorrect={false}
             autoComplete="off"
           />

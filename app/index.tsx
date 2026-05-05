@@ -2,6 +2,7 @@ import { useEffect } from "react"
 import { View, Text } from "react-native"
 import { router } from "expo-router"
 import { supabase } from "../lib/supabase"
+import { ensureProfileForUser } from "../lib/auth"
 
 export default function Index() {
 
@@ -17,13 +18,7 @@ export default function Index() {
       return
     }
 
-    const userId = sessionData.session.user.id
-
-    const { data: profile } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("id", userId)
-      .single()
+    const profile = await ensureProfileForUser(sessionData.session.user)
 
     if (!profile) {
       router.replace("/login")

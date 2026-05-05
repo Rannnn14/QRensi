@@ -70,7 +70,7 @@ export const saveCsvFile = async (fileName: string, csvContent: string) => {
 };
 
 export const saveImageToGallery = async (uri: string, albumName = "QRensi") => {
-  const permission = await MediaLibrary.requestPermissionsAsync();
+  const permission = await MediaLibrary.requestPermissionsAsync(false, ["photo"]);
 
   if (!permission.granted) {
     throw new Error("Izin galeri ditolak");
@@ -98,6 +98,42 @@ export const writeBase64ImageToCache = async (fileName: string, base64Content: s
   const fileUri = `${directory}${fileName}`;
   await FileSystem.writeAsStringAsync(fileUri, base64Content, {
     encoding: FileSystem.EncodingType.Base64,
+  });
+
+  return fileUri;
+};
+
+export const saveImageFile = async (fileName: string, sourceUri: string, albumName = "QRensi") => {
+  const localFileUri = await ensureLocalBinaryFile(fileName, sourceUri);
+  const permission = await MediaLibrary.requestPermissionsAsync(false, ["photo"]);
+
+  if (!permission.granted) {
+    throw new Error("Izin galeri ditolak");
+  }
+
+  const asset = await MediaLibrary.createAssetAsync(localFileUri);
+  const album = await MediaLibrary.getAlbumAsync(albumName);
+
+  if (album) {
+    await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
+  } else {
+    await MediaLibrary.createAlbumAsync(albumName, asset, false);
+  }
+
+  return { mode: "gallery" as const, uri: localFileUri };
+};
+
+const ensureLocalBinaryFile = async (fileName: string, sourceUri: string) => {
+  const directory = FileSystem.documentDirectory || FileSystem.cacheDirectory;
+
+  if (!directory) {
+    throw new Error("Direktori file tidak tersedia");
+  }
+
+  const fileUri = `${directory}${fileName}`;
+  await FileSystem.copyAsync({
+    from: sourceUri,
+    to: fileUri,
   });
 
   return fileUri;

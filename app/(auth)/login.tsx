@@ -10,19 +10,38 @@ import {
   TouchableOpacity,
   Alert,
   Modal,
+  Pressable,
 } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { router } from "expo-router";
 import { supabase } from "../../lib/supabase";
 import { supabaseAdmin } from "../../lib/supabaseAdmin";
+import { ensureProfileForUser } from "../../lib/auth";
 import { AppTheme } from "../../constants/theme";
 import { AppButton } from "../../components/ui/app-button";
 import { AppInput } from "../../components/ui/app-input";
 import { AppCard } from "../../components/ui/app-card";
 import { buildPasswordRequestNote } from "../../lib/pengajuan";
+import { normalizeStudentNisn } from "../../lib/student";
 
 type AuthUserSummary = {
   id: string;
   email?: string;
+  user_metadata?: {
+    nisn?: string;
+    full_name?: string;
+    class_name?: string;
+    role?: string;
+  } | null;
+};
+
+type ProfileRecord = {
+  id?: string;
+  nama?: string | null;
+  kelas?: string | null;
+  role?: string | null;
+  nisn?: string | null;
+  NISN?: string | null;
 };
 
 export default function Login() {
@@ -32,14 +51,55 @@ export default function Login() {
   const [isPasswordVisible, setIsPasswordVisible] = useState(false);
   const [showForgotPassword, setShowForgotPassword] = useState(false);
   const [forgotEmail, setForgotEmail] = useState("");
+  const [forgotNisn, setForgotNisn] = useState("");
   const [forgotPassword, setForgotPassword] = useState("");
   const [forgotPasswordConfirm, setForgotPasswordConfirm] = useState("");
   const [forgotReason, setForgotReason] = useState("");
   const [forgotSubmitting, setForgotSubmitting] = useState(false);
+  const [isForgotPasswordVisible, setIsForgotPasswordVisible] = useState(false);
+  const [isForgotPasswordConfirmVisible, setIsForgotPasswordConfirmVisible] = useState(false);
+
+  const isForgotPasswordMismatch =
+    forgotPasswordConfirm.length > 0 && forgotPassword !== forgotPasswordConfirm;
+
+  const hasForgotPasswordDraft = Boolean(
+    forgotEmail.trim() ||
+    forgotNisn.trim() ||
+    forgotPassword ||
+    forgotPasswordConfirm ||
+    forgotReason.trim()
+  );
+
+  const closeForgotPasswordModal = () => {
+    setForgotEmail("");
+    setForgotNisn("");
+    setForgotPassword("");
+    setForgotPasswordConfirm("");
+    setForgotReason("");
+    setIsForgotPasswordVisible(false);
+    setIsForgotPasswordConfirmVisible(false);
+    setShowForgotPassword(false);
+  };
+
+  const requestCloseForgotPasswordModal = () => {
+    if (!hasForgotPasswordDraft || forgotSubmitting) {
+      closeForgotPasswordModal();
+      return;
+    }
+
+    Alert.alert(
+      "Batalkan Perubahan?",
+      "Apakah yakin ingin menutup form ganti password? Data yang sudah diisi akan hilang.",
+      [
+        { text: "Lanjut Isi", style: "cancel" },
+        { text: "Ya", style: "destructive", onPress: closeForgotPasswordModal },
+      ]
+    );
+  };
 
   const handleLogin = async () => {
     setError("");
-    const { error: authError } = await supabase.auth.signInWithPassword({
+    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
@@ -47,6 +107,14 @@ export default function Login() {
     if (authError) {
       setError(authError.message);
       return;
+    }
+
+    if (authData.user) {
+      try {
+        await ensureProfileForUser(authData.user);
+      } catch (syncError: any) {
+        console.log("Gagal sinkron profil saat login:", syncError?.message || syncError);
+      }
     }
     router.replace("/");
   };
@@ -80,11 +148,19 @@ export default function Login() {
     }
   };
 
-  const submitForgotPassword = async () => {
+  const getProfileNisn = (profile?: ProfileRecord | null, authUser?: AuthUserSummary | null) =>
+    normalizeStudentNisn(
+      profile?.nisn ||
+      profile?.NISN ||
+      authUser?.user_metadata?.nisn ||
+      ""
+    );
+
+  const processForgotPassword = async () => {
     const normalizedEmail = forgotEmail.trim().toLowerCase();
 
-    if (!normalizedEmail || !forgotPassword || !forgotPasswordConfirm || !forgotReason.trim()) {
-      Alert.alert("Info", "Semua kolom permintaan password harus diisi.");
+    if (!normalizedEmail || !forgotPassword || !forgotPasswordConfirm) {
+      Alert.alert("Info", "Email dan password baru wajib diisi.");
       return;
     }
 
@@ -106,20 +182,72 @@ export default function Login() {
         throw new Error("Email akun tidak ditemukan.");
       }
 
-      const { data: profile, error: profileError } = await supabaseAdmin
+      const { data: profileData, error: profileError } = await supabaseAdmin
         .from("profiles")
-        .select("id, nama, kelas")
+        .select("*")
         .eq("id", authUser.id)
-        .single();
+        .maybeSingle();
 
-      if (profileError || !profile) {
-        throw new Error("Profil pengguna tidak ditemukan.");
+      if (profileError) {
+        throw profileError;
+      }
+
+      const profile = (profileData || null) as ProfileRecord | null;
+
+      const normalizedNisn = normalizeStudentNisn(forgotNisn);
+      const storedNisn = getProfileNisn(profile, authUser);
+      const isStudentAccount =
+        String(profile?.role || authUser.user_metadata?.role || "").toLowerCase() === "user" ||
+        Boolean(storedNisn);
+      const isAdminAccount = !isStudentAccount;
+      const accountName =
+        profile?.nama || authUser.user_metadata?.full_name || normalizedEmail;
+      const accountClass = profile?.kelas || authUser.user_metadata?.class_name || "Admin";
+
+      if (isStudentAccount) {
+        if (!profile && !storedNisn) {
+          throw new Error("Akun siswa tidak ditemukan untuk email ini.");
+        }
+
+        if (!storedNisn) {
+          throw new Error("NISN untuk akun siswa ini belum tersedia di database.");
+        }
+
+        if (!normalizedNisn) {
+          throw new Error("NISN wajib diisi untuk akun siswa.");
+        }
+
+        if (storedNisn !== normalizedNisn) {
+          throw new Error("NISN tidak sesuai.");
+        }
+
+        if (!forgotReason.trim()) {
+          throw new Error("Alasan ganti password wajib diisi untuk akun siswa.");
+        }
+      }
+
+      if (isAdminAccount) {
+        if (storedNisn) {
+          throw new Error("Email ini terdaftar sebagai akun siswa. Gunakan tab User.");
+        }
+
+        const { error: passwordError } = await supabaseAdmin.auth.admin.updateUserById(authUser.id, {
+          password: forgotPassword,
+        });
+
+        if (passwordError) {
+          throw passwordError;
+        }
+
+        Alert.alert("Berhasil", "Password admin berhasil diganti.");
+        closeForgotPasswordModal();
+        return;
       }
 
       const { data: existingRequest, error: existingError } = await supabaseAdmin
         .from("pengajuan")
         .select("id")
-        .eq("user_id", profile.id)
+        .eq("user_id", authUser.id)
         .eq("jenis", "ganti_password")
         .eq("status", "pending")
         .maybeSingle();
@@ -134,14 +262,16 @@ export default function Login() {
 
       const { error: insertError } = await supabaseAdmin.from("pengajuan").insert([
         {
-          user_id: profile.id,
-          nama: profile.nama,
-          kelas: profile.kelas,
+          user_id: authUser.id,
+          nama: accountName,
+          kelas: isAdminAccount ? "Admin" : accountClass,
           jenis: "ganti_password",
           keterangan: buildPasswordRequestNote({
             password: forgotPassword,
             alasan: forgotReason.trim(),
             email: normalizedEmail,
+            nisn: isStudentAccount ? normalizedNisn : undefined,
+            role: isAdminAccount ? "admin" : "user",
           }),
           status: "pending",
         },
@@ -152,16 +282,45 @@ export default function Login() {
       }
 
       Alert.alert("Berhasil", "Permintaan ganti password sudah dikirim ke admin.");
-      setForgotEmail("");
-      setForgotPassword("");
-      setForgotPasswordConfirm("");
-      setForgotReason("");
-      setShowForgotPassword(false);
+      closeForgotPasswordModal();
     } catch (requestError: any) {
       Alert.alert("Error", requestError.message || "Gagal mengirim permintaan ganti password.");
     } finally {
       setForgotSubmitting(false);
     }
+  };
+
+  const submitForgotPassword = () => {
+    const normalizedEmail = forgotEmail.trim().toLowerCase();
+
+    if (!normalizedEmail || !forgotPassword || !forgotPasswordConfirm) {
+      Alert.alert("Info", "Email dan password baru wajib diisi.");
+      return;
+    }
+
+    if (forgotPassword !== forgotPasswordConfirm) {
+      Alert.alert("Info", "Konfirmasi password belum sama.");
+      return;
+    }
+
+    const hasStudentFields = Boolean(forgotNisn.trim() || forgotReason.trim());
+    const confirmMessage = hasStudentFields
+      ? "Apakah Bapak/Ibu yakin ingin mengganti password?"
+      : "Apakah admin yakin ingin ganti password :) ??";
+
+    Alert.alert(
+      "Konfirmasi Ganti Password",
+      confirmMessage,
+      [
+        { text: "Periksa Lagi", style: "cancel" },
+        {
+          text: "Ya",
+          onPress: () => {
+            processForgotPassword();
+          },
+        },
+      ]
+    );
   };
 
   return (
@@ -220,57 +379,104 @@ export default function Login() {
         </AppCard>
       </ScrollView>
 
-      <Modal transparent animationType="fade" visible={showForgotPassword} onRequestClose={() => setShowForgotPassword(false)}>
+      <Modal transparent animationType="fade" visible={showForgotPassword} onRequestClose={requestCloseForgotPasswordModal}>
         <View style={styles.modalOverlay}>
-          <AppCard style={styles.requestCard}>
-            <View style={styles.modalHeader}>
-              <View style={styles.modalTitleWrap}>
-                <Text style={styles.requestTitle}>Permintaan Ganti Password</Text>
-                <Text style={styles.requestCaption}>
-                  Isi data berikut. Permintaan akan masuk ke admin untuk disetujui dari daftar pengajuan.
-                </Text>
+          <Pressable style={StyleSheet.absoluteFill} onPress={requestCloseForgotPasswordModal} />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === "ios" ? "padding" : undefined}
+            style={styles.modalKeyboardWrap}
+          >
+            <AppCard style={styles.requestCard}>
+              <View style={styles.modalTopAccent} />
+              <View style={styles.modalHeader}>
+                <View style={styles.modalIconWrap}>
+                  <Ionicons name="lock-closed-outline" size={20} color={AppTheme.colors.primary} />
+                </View>
+                <TouchableOpacity style={styles.modalCloseIconButton} onPress={requestCloseForgotPasswordModal}>
+                  <Ionicons name="close" size={18} color={AppTheme.colors.textMuted} />
+                </TouchableOpacity>
               </View>
-              <TouchableOpacity style={styles.modalClose} onPress={() => setShowForgotPassword(false)}>
-                <Text style={styles.modalCloseText}>Tutup</Text>
-              </TouchableOpacity>
-            </View>
+              <ScrollView
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                contentContainerStyle={styles.requestContent}
+              >
+                <View style={styles.modalTitleWrap}>
+                  <Text style={styles.requestTitle}>Atur Ulang Password</Text>
+                </View>
 
-            <AppInput
-              placeholder="Email akun"
-              value={forgotEmail}
-              onChangeText={setForgotEmail}
-              autoCapitalize="none"
-              keyboardType="email-address"
-            />
+                <View style={styles.infoBanner}>
+                  <Ionicons name="information-circle-outline" size={18} color={AppTheme.colors.info} />
+                  <Text style={styles.infoBannerText}>
+                    Admin cukup masukkan email yang sesuai. Jika akun ini milik siswa, isi NISN dan alasan.
+                  </Text>
+                </View>
 
-            <AppInput
-              placeholder="Password baru"
-              value={forgotPassword}
-              onChangeText={setForgotPassword}
-              secureTextEntry
-            />
+                <AppInput
+                  placeholder="Email akun"
+                  value={forgotEmail}
+                  onChangeText={setForgotEmail}
+                  autoCapitalize="none"
+                  keyboardType="email-address"
+                />
 
-            <AppInput
-              placeholder="Konfirmasi password baru"
-              value={forgotPasswordConfirm}
-              onChangeText={setForgotPasswordConfirm}
-              secureTextEntry
-            />
+                <AppInput
+                  placeholder="NISN"
+                  value={forgotNisn}
+                  onChangeText={(text) => setForgotNisn(normalizeStudentNisn(text))}
+                  keyboardType="number-pad"
+                />
 
-            <AppInput
-              placeholder="Alasan ganti password"
-              value={forgotReason}
-              onChangeText={setForgotReason}
-              multiline
-              style={styles.reasonInput}
-            />
+                <AppInput
+                  placeholder="Password baru"
+                  value={forgotPassword}
+                  onChangeText={setForgotPassword}
+                  secureTextEntry={!isForgotPasswordVisible}
+                  trailingIcon={isForgotPasswordVisible ? "eye-outline" : "eye-off-outline"}
+                  onTrailingPress={() => setIsForgotPasswordVisible((prev) => !prev)}
+                />
 
-            <AppButton
-              label={forgotSubmitting ? "Mengirim..." : "Kirim Permintaan"}
-              onPress={submitForgotPassword}
-              disabled={forgotSubmitting}
-            />
-          </AppCard>
+                <AppInput
+                  placeholder="Konfirmasi password baru"
+                  value={forgotPasswordConfirm}
+                  onChangeText={setForgotPasswordConfirm}
+                  secureTextEntry={!isForgotPasswordConfirmVisible}
+                  trailingIcon={isForgotPasswordConfirmVisible ? "eye-outline" : "eye-off-outline"}
+                  onTrailingPress={() => setIsForgotPasswordConfirmVisible((prev) => !prev)}
+                />
+
+                {isForgotPasswordMismatch ? (
+                  <View style={styles.warningBanner}>
+                    <Ionicons name="alert-circle-outline" size={18} color={AppTheme.colors.danger} />
+                    <Text style={styles.warningBannerText}>
+                      Konfirmasi password belum sama dengan password baru.
+                    </Text>
+                  </View>
+                ) : null}
+
+                <AppInput
+                  placeholder="Alasan"
+                  value={forgotReason}
+                  onChangeText={setForgotReason}
+                  multiline
+                  style={styles.reasonInput}
+                />
+
+                <View style={styles.modalActionRow}>
+                  <TouchableOpacity style={styles.secondaryModalButton} onPress={requestCloseForgotPasswordModal}>
+                    <Text style={styles.secondaryModalButtonText}>Batal</Text>
+                  </TouchableOpacity>
+                  <View style={styles.primaryButtonWrap}>
+                    <AppButton
+                      label={forgotSubmitting ? "Memproses..." : "Lanjutkan"}
+                      onPress={submitForgotPassword}
+                      disabled={forgotSubmitting || isForgotPasswordMismatch}
+                    />
+                  </View>
+                </View>
+              </ScrollView>
+            </AppCard>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </KeyboardAvoidingView>
@@ -352,41 +558,127 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     padding: 20,
   },
+  modalKeyboardWrap: {
+    width: "100%",
+    justifyContent: "center",
+  },
   requestCard: {
-    gap: AppTheme.spacing.md,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    overflow: "hidden",
+    maxHeight: "86%",
+    borderRadius: 26,
+  },
+  requestContent: {
+    paddingHorizontal: AppTheme.spacing.lg,
+    paddingBottom: AppTheme.spacing.lg,
+    gap: 10,
+  },
+  modalTopAccent: {
+    height: 8,
+    backgroundColor: AppTheme.colors.accent,
   },
   modalHeader: {
     flexDirection: "row",
-    alignItems: "flex-start",
+    alignItems: "center",
     justifyContent: "space-between",
     gap: AppTheme.spacing.md,
+    paddingHorizontal: AppTheme.spacing.lg,
+    paddingTop: AppTheme.spacing.lg,
+    paddingBottom: 6,
   },
   modalTitleWrap: {
-    flex: 1,
+    gap: 2,
   },
-  modalClose: {
+  modalIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: AppTheme.radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
     backgroundColor: AppTheme.colors.primarySoft,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: AppTheme.radius.sm,
   },
-  modalCloseText: {
-    color: AppTheme.colors.primary,
-    fontWeight: "700",
-    fontSize: 12,
+  modalCloseIconButton: {
+    width: 38,
+    height: 38,
+    borderRadius: AppTheme.radius.pill,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: AppTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
   },
   requestTitle: {
     color: AppTheme.colors.text,
-    fontSize: 17,
+    fontSize: 22,
     fontWeight: "800",
   },
   requestCaption: {
     color: AppTheme.colors.textMuted,
     lineHeight: 20,
   },
+  infoBanner: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: AppTheme.spacing.sm,
+    backgroundColor: "#F3F8FF",
+    borderRadius: 18,
+    paddingHorizontal: AppTheme.spacing.md,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: "#D9E7F6",
+  },
+  infoBannerText: {
+    flex: 1,
+    color: AppTheme.colors.info,
+    lineHeight: 19,
+    fontSize: 13,
+    fontWeight: "700",
+  },
+  warningBanner: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: AppTheme.spacing.sm,
+    backgroundColor: AppTheme.colors.dangerSoft,
+    borderRadius: AppTheme.radius.md,
+    paddingHorizontal: AppTheme.spacing.md,
+    paddingVertical: AppTheme.spacing.sm,
+    borderWidth: 1,
+    borderColor: "#F3B5B5",
+  },
+  warningBannerText: {
+    flex: 1,
+    color: AppTheme.colors.danger,
+    fontSize: 13,
+    fontWeight: "700",
+    lineHeight: 18,
+  },
   reasonInput: {
-    minHeight: 88,
+    minHeight: 84,
     textAlignVertical: "top",
     paddingTop: 14,
+  },
+  modalActionRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: AppTheme.spacing.sm,
+    marginTop: AppTheme.spacing.xs,
+  },
+  secondaryModalButton: {
+    minHeight: 48,
+    paddingHorizontal: AppTheme.spacing.lg,
+    borderRadius: AppTheme.radius.md,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: AppTheme.colors.borderStrong,
+    backgroundColor: AppTheme.colors.surfaceMuted,
+  },
+  secondaryModalButtonText: {
+    color: AppTheme.colors.primary,
+    fontWeight: "800",
+  },
+  primaryButtonWrap: {
+    flex: 1,
   },
 });

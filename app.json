@@ -7,7 +7,7 @@
     "icon": "./assets/images/icon.png",
     "scheme": "qrensi",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": true,
+    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true
     },
@@ -39,7 +39,15 @@
           }
         }
       ],
-      "expo-barcode-scanner",
+      [
+        "expo-media-library",
+        {
+          "granularPermissions": [
+            "photo"
+          ],
+          "savePhotosPermission": "Izinkan QRensi menyimpan QR ke galeri perangkat."
+        }
+      ],
       "expo-notifications"
     ],
     "experiments": {

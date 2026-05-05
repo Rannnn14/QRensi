@@ -1,5 +1,5 @@
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl } from "react-native"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { supabase } from "../../lib/supabase"
 import { router } from "expo-router"
 import { Ionicons } from "@expo/vector-icons"
@@ -11,6 +11,7 @@ import { getLocalDateValue } from "../../lib/date"
 import { prepareNotifications, sendLocalNotification } from "../../lib/notifications"
 import { supabaseAdmin } from "../../lib/supabaseAdmin"
 import {
+  cleanupExpiredSubmissions,
   formatSubmissionTime,
   getDefaultAttendanceStatus,
   getSubmissionDisplayType,
@@ -35,6 +36,12 @@ type SubmissionState = {
   status: string
   created_at: string
 }
+
+const emptyProfile: ProfileState = { name: "", kelas: "-" }
+const emptyAttendance = (): AttendanceState => ({
+  status: getDefaultAttendanceStatus(),
+  waktu: "--:--",
+})
 
 const quickActions = [
   {
@@ -64,27 +71,68 @@ const quickActions = [
 ]
 
 export default function User() {
-  const [profile, setProfile] = useState<ProfileState>({ name: "", kelas: "-" })
-  const [attendance, setAttendance] = useState<AttendanceState>({ status: getDefaultAttendanceStatus(), waktu: "--:--" })
+  const [profile, setProfile] = useState<ProfileState>(emptyProfile)
+  const [attendance, setAttendance] = useState<AttendanceState>(emptyAttendance())
+  const [dashboardLoading, setDashboardLoading] = useState(true)
+  const [backgroundSyncing, setBackgroundSyncing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [todaySubmissions, setTodaySubmissions] = useState<SubmissionState[]>([])
+  const activeUserIdRef = useRef<string | null>(null)
+  const loadTokenRef = useRef(0)
+  const hasLoadedOnceRef = useRef(false)
 
   useEffect(() => {
-    prepareNotifications()
+    prepareNotifications().catch((error) => {
+      console.log("Notifikasi tidak siap:", error)
+    })
     let profileChannel: any = null
     let attendanceChannel: any = null
     let submissionChannel: any = null
 
-    const loadTodaySubmissions = async (userId: string) => {
-      const { data: submissionData } = await supabaseAdmin
-        .from("pengajuan")
-        .select("id, jenis, status, created_at")
-        .eq("user_id", userId)
-        .neq("jenis", PASSWORD_REQUEST_TYPE)
-        .order("created_at", { ascending: false })
+    const resetDashboardState = () => {
+      activeUserIdRef.current = null
+      setProfile(emptyProfile)
+      setAttendance(emptyAttendance())
+      setTodaySubmissions([])
+    }
 
-      const filtered = (submissionData || []).filter((item) => isTodaySubmission(item.created_at))
-      setTodaySubmissions(filtered as SubmissionState[])
+    const removeRealtimeChannels = () => {
+      if (profileChannel) {
+        supabase.removeChannel(profileChannel)
+        profileChannel = null
+      }
+
+      if (attendanceChannel) {
+        supabase.removeChannel(attendanceChannel)
+        attendanceChannel = null
+      }
+
+      if (submissionChannel) {
+        supabase.removeChannel(submissionChannel)
+        submissionChannel = null
+      }
+    }
+
+    const loadTodaySubmissions = async (userId: string) => {
+      try {
+        await cleanupExpiredSubmissions()
+        const { data: submissionData, error } = await supabaseAdmin
+          .from("pengajuan")
+          .select("id, jenis, status, created_at")
+          .eq("user_id", userId)
+          .neq("jenis", PASSWORD_REQUEST_TYPE)
+          .order("created_at", { ascending: false })
+
+        if (error) {
+          throw error
+        }
+
+        const filtered = (submissionData || []).filter((item) => isTodaySubmission(item.created_at))
+        setTodaySubmissions(filtered as SubmissionState[])
+      } catch (error) {
+        console.log("Gagal memuat pengajuan hari ini:", error)
+        setTodaySubmissions([])
+      }
     }
 
     const applyFallbackAttendance = () => {
@@ -97,165 +145,239 @@ export default function User() {
       setTodaySubmissions((prev) => prev.filter((item) => isTodaySubmission(item.created_at)))
     }
 
-    const loadDashboard = async () => {
-      const { data } = await supabase.auth.getUser()
-      const user = data?.user
-      if (!user) return
+    const loadDashboard = async (
+      nextUserId?: string | null,
+      showLoader = true,
+      forceVisibleReset = false
+    ) => {
+      const currentLoadToken = loadTokenRef.current + 1
+      loadTokenRef.current = currentLoadToken
+      const isSwitchingUser = Boolean(
+        nextUserId && activeUserIdRef.current && nextUserId !== activeUserIdRef.current
+      )
+      const shouldResetVisibleState = forceVisibleReset || isSwitchingUser
+      const shouldShowLoader = showLoader && (!hasLoadedOnceRef.current || shouldResetVisibleState)
 
-      const fallbackName = user.email ? user.email.split("@")[0] : "User"
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("nama, kelas")
-        .eq("id", user.id)
-        .single()
+      if (shouldShowLoader) {
+        setDashboardLoading(true)
+      } else {
+        setBackgroundSyncing(true)
+      }
 
-      setProfile({
-        name: profileData?.nama || fallbackName,
-        kelas: profileData?.kelas || "-",
-      })
+      removeRealtimeChannels()
+      if (shouldResetVisibleState) {
+        resetDashboardState()
+      }
 
-      const today = getLocalDateValue()
-      const { data: attendanceData } = await supabaseAdmin
-        .from("absensi")
-        .select("status, created_at")
-        .eq("user_id", user.id)
-        .eq("tanggal", today)
-        .maybeSingle()
+      try {
+        const { data } = await supabase.auth.getUser()
+        const user = data?.user
+        if (!user || (nextUserId && user.id !== nextUserId)) {
+          return
+        }
 
-      setAttendance({
-        status: attendanceData?.status || getDefaultAttendanceStatus(),
-        waktu: attendanceData?.created_at
-          ? new Date(attendanceData.created_at).toLocaleTimeString("id-ID", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "--:--",
-      })
+        activeUserIdRef.current = user.id
 
-      await loadTodaySubmissions(user.id)
+        const fallbackName = user.email ? user.email.split("@")[0] : "User"
+        const { data: profileData, error: profileError } = await supabase
+          .from("profiles")
+          .select("nama, kelas")
+          .eq("id", user.id)
+          .single()
 
-      profileChannel = supabase
-        .channel("realtime-user-" + user.id)
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "profiles", filter: `id=eq.${user.id}` },
-          (payload: { new?: { nama?: string; kelas?: string } }) => {
-            setProfile((prev) => ({
-              name: payload.new?.nama || prev.name,
-              kelas: payload.new?.kelas || prev.kelas,
-            }))
-          }
-        )
-        .subscribe()
+        if (profileError) {
+          throw profileError
+        }
 
-      attendanceChannel = supabase
-        .channel("realtime-attendance-" + user.id)
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "absensi", filter: `user_id=eq.${user.id}` },
-          (payload: { new?: { status?: string; created_at?: string; tanggal?: string } }) => {
-            if (payload.new?.tanggal !== getLocalDateValue()) return
+        if (loadTokenRef.current !== currentLoadToken || activeUserIdRef.current !== user.id) {
+          return
+        }
 
-            const latestTime = payload.new?.created_at
-              ? new Date(payload.new.created_at).toLocaleTimeString("id-ID", {
-                  hour: "2-digit",
-                  minute: "2-digit",
-                })
-              : "--:--"
+        setProfile({
+          name: profileData?.nama || fallbackName,
+          kelas: profileData?.kelas || "-",
+        })
 
-            setAttendance({
-              status: payload.new?.status || getDefaultAttendanceStatus(),
-              waktu: latestTime,
-            })
-            sendLocalNotification(
-              "Update kehadiran",
-              `Status kamu sekarang ${payload.new?.status || getDefaultAttendanceStatus()} pada ${latestTime}.`
-            )
-          }
-        )
-        .subscribe()
+        const today = getLocalDateValue()
+        const { data: attendanceData, error: attendanceError } = await supabaseAdmin
+          .from("absensi")
+          .select("status, created_at")
+          .eq("user_id", user.id)
+          .eq("tanggal", today)
+          .maybeSingle()
 
-      submissionChannel = supabase
-        .channel("realtime-submission-" + user.id)
-        .on(
-          "postgres_changes",
-          { event: "*", schema: "public", table: "pengajuan", filter: `user_id=eq.${user.id}` },
-          () => {
-            loadTodaySubmissions(user.id)
-          }
-        )
-        .subscribe()
+        if (attendanceError) {
+          throw attendanceError
+        }
+
+        if (loadTokenRef.current !== currentLoadToken || activeUserIdRef.current !== user.id) {
+          return
+        }
+
+        setAttendance({
+          status: attendanceData?.status || getDefaultAttendanceStatus(),
+          waktu: attendanceData?.created_at
+            ? new Date(attendanceData.created_at).toLocaleTimeString("id-ID", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "--:--",
+        })
+
+        await loadTodaySubmissions(user.id)
+
+        if (loadTokenRef.current !== currentLoadToken || activeUserIdRef.current !== user.id) {
+          return
+        }
+
+        hasLoadedOnceRef.current = true
+
+        profileChannel = supabase
+          .channel("realtime-user-" + user.id)
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "profiles", filter: `id=eq.${user.id}` },
+            (payload: { new?: { nama?: string; kelas?: string } }) => {
+              if (activeUserIdRef.current !== user.id) return
+              setProfile((prev) => ({
+                name: payload.new?.nama || prev.name,
+                kelas: payload.new?.kelas || prev.kelas,
+              }))
+            }
+          )
+          .subscribe()
+
+        attendanceChannel = supabase
+          .channel("realtime-attendance-" + user.id)
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "absensi", filter: `user_id=eq.${user.id}` },
+            (payload: { new?: { status?: string; created_at?: string; tanggal?: string } }) => {
+              if (activeUserIdRef.current !== user.id) return
+              if (payload.new?.tanggal !== getLocalDateValue()) return
+
+              const latestTime = payload.new?.created_at
+                ? new Date(payload.new.created_at).toLocaleTimeString("id-ID", {
+                    hour: "2-digit",
+                    minute: "2-digit",
+                  })
+                : "--:--"
+
+              setAttendance({
+                status: payload.new?.status || getDefaultAttendanceStatus(),
+                waktu: latestTime,
+              })
+              sendLocalNotification(
+                "Update kehadiran",
+                `Status kamu sekarang ${payload.new?.status || getDefaultAttendanceStatus()} pada ${latestTime}.`
+              ).catch((error) => {
+                console.log("Gagal mengirim notifikasi lokal:", error)
+              })
+            }
+          )
+          .subscribe()
+
+        submissionChannel = supabase
+          .channel("realtime-submission-" + user.id)
+          .on(
+            "postgres_changes",
+            { event: "*", schema: "public", table: "pengajuan", filter: `user_id=eq.${user.id}` },
+            () => {
+              if (activeUserIdRef.current !== user.id) return
+              loadTodaySubmissions(user.id).catch(() => undefined)
+            }
+          )
+          .subscribe()
+      } catch (error) {
+        console.log("Gagal memuat dashboard user:", error)
+        if (!hasLoadedOnceRef.current || shouldResetVisibleState) {
+          resetDashboardState()
+        }
+      } finally {
+        if (loadTokenRef.current === currentLoadToken) {
+          setDashboardLoading(false)
+          setBackgroundSyncing(false)
+        }
+      }
     }
 
     loadDashboard()
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const sessionUserId = session?.user?.id || null
+
+      if (!sessionUserId) {
+        loadTokenRef.current += 1
+        hasLoadedOnceRef.current = false
+        removeRealtimeChannels()
+        resetDashboardState()
+        setDashboardLoading(false)
+        setBackgroundSyncing(false)
+        return
+      }
+
+      if (sessionUserId !== activeUserIdRef.current) {
+        loadDashboard(sessionUserId, true, true)
+      }
+    })
     const cutoffWatcher = setInterval(applyFallbackAttendance, 30000)
 
     return () => {
       clearInterval(cutoffWatcher)
-      if (profileChannel) supabase.removeChannel(profileChannel)
-      if (attendanceChannel) supabase.removeChannel(attendanceChannel)
-      if (submissionChannel) supabase.removeChannel(submissionChannel)
+      authListener.subscription.unsubscribe()
+      removeRealtimeChannels()
     }
   }, [])
 
   const onRefresh = async () => {
     setRefreshing(true)
-    const { data } = await supabase.auth.getUser()
-    const user = data?.user
-    if (user) {
-      const fallbackName = user.email ? user.email.split("@")[0] : "User"
-      const { data: profileData } = await supabase
-        .from("profiles")
-        .select("nama, kelas")
-        .eq("id", user.id)
-        .single()
+    try {
+      const { data } = await supabase.auth.getUser()
+      const user = data?.user
+      if (user) {
+        activeUserIdRef.current = user.id
+        const today = getLocalDateValue()
+        const { data: attendanceData, error: attendanceError } = await supabaseAdmin
+          .from("absensi")
+          .select("status, created_at")
+          .eq("user_id", user.id)
+          .eq("tanggal", today)
+          .maybeSingle()
 
-      setProfile({
-        name: profileData?.nama || fallbackName,
-        kelas: profileData?.kelas || "-",
-      })
+        if (attendanceError) {
+          throw attendanceError
+        }
 
-      const today = getLocalDateValue()
-      const { data: attendanceData } = await supabaseAdmin
-        .from("absensi")
-        .select("status, created_at")
-        .eq("user_id", user.id)
-        .eq("tanggal", today)
-        .maybeSingle()
+        setAttendance({
+          status: attendanceData?.status || getDefaultAttendanceStatus(),
+          waktu: attendanceData?.created_at
+            ? new Date(attendanceData.created_at).toLocaleTimeString("id-ID", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "--:--",
+        })
 
-      setAttendance({
-        status: attendanceData?.status || getDefaultAttendanceStatus(),
-        waktu: attendanceData?.created_at
-          ? new Date(attendanceData.created_at).toLocaleTimeString("id-ID", {
-              hour: "2-digit",
-              minute: "2-digit",
-            })
-          : "--:--",
-      })
+        await cleanupExpiredSubmissions()
+        const { data: submissionData, error: submissionError } = await supabaseAdmin
+          .from("pengajuan")
+          .select("id, jenis, status, created_at")
+          .eq("user_id", user.id)
+          .neq("jenis", PASSWORD_REQUEST_TYPE)
+          .order("created_at", { ascending: false })
 
-      const { data: submissionData } = await supabaseAdmin
-        .from("pengajuan")
-        .select("id, jenis, status, created_at")
-        .eq("user_id", user.id)
-        .neq("jenis", PASSWORD_REQUEST_TYPE)
-        .order("created_at", { ascending: false })
+        if (submissionError) {
+          throw submissionError
+        }
 
-      const filtered = (submissionData || []).filter((item) => isTodaySubmission(item.created_at))
-      setTodaySubmissions(filtered as SubmissionState[])
+        const filtered = (submissionData || []).filter((item) => isTodaySubmission(item.created_at))
+        setTodaySubmissions(filtered as SubmissionState[])
+      }
+    } catch (error) {
+      console.log("Gagal refresh dashboard user:", error)
+    } finally {
+      setRefreshing(false)
     }
-    setRefreshing(false)
   }
-
-  const normalizedStatus = attendance.status.toLowerCase()
-
-  const statusColor =
-    normalizedStatus === "hadir"
-      ? "#1e8c5d"
-      : normalizedStatus === "izin" || normalizedStatus === "sakit"
-        ? "#ba7412"
-        : normalizedStatus === "tidak hadir"
-          ? AppTheme.colors.danger
-          : "#22405f"
 
   return (
     <SafeAreaView edges={["top"]} style={styles.screen}>
@@ -272,6 +394,12 @@ export default function User() {
           </View>
 
           <View style={styles.headerActions}>
+            <View style={[styles.syncChip, backgroundSyncing && styles.syncChipActive]}>
+              <View style={[styles.syncDot, backgroundSyncing && styles.syncDotActive]} />
+              <Text style={styles.syncChipText}>
+                {backgroundSyncing ? "Menyinkronkan" : "Realtime"}
+              </Text>
+            </View>
             <TouchableOpacity style={styles.iconButton} onPress={onRefresh} disabled={refreshing}>
               <Ionicons
                 name={refreshing ? "hourglass-outline" : "refresh-outline"}
@@ -295,20 +423,28 @@ export default function User() {
         <View style={styles.profileCard}>
           <View>
             <Text style={styles.mutedLabel}>Profil Siswa</Text>
-            <Text style={styles.profileName}>{profile.name}</Text>
-            <Text style={styles.profileMeta}>Kelas {profile.kelas}</Text>
+            <Text style={styles.profileName}>
+              {dashboardLoading && !profile.name ? "Memuat nama..." : profile.name || "-"}
+            </Text>
+            <Text style={styles.profileMeta}>
+              {dashboardLoading && profile.kelas === "-" ? "Memuat kelas..." : `Kelas ${profile.kelas}`}
+            </Text>
           </View>
           <View style={styles.statusBadge}>
-            <Text style={styles.statusBadgeText}>Aktif</Text>
+            <Text style={styles.statusBadgeText}>{dashboardLoading ? "Sinkron..." : "Aktif"}</Text>
           </View>
         </View>
 
         <TouchableOpacity style={styles.noticeCard} onPress={() => router.push("/ajuan" as any)}>
           <View style={styles.noticeHeader}>
             <Text style={styles.noticeTitle}>Riwayat Pengajuan Hari Ini</Text>
-            <Text style={styles.noticeMeta}>{todaySubmissions.length} item</Text>
+            <Text style={styles.noticeMeta}>{dashboardLoading ? "Memuat..." : `${todaySubmissions.length} item`}</Text>
           </View>
-          {todaySubmissions.length === 0 ? (
+          {dashboardLoading ? (
+            <Text style={styles.noticeEmpty}>
+              Riwayat pengajuan sedang disiapkan.
+            </Text>
+          ) : todaySubmissions.length === 0 ? (
             <Text style={styles.noticeEmpty}>
               Belum ada pengajuan hari ini. Riwayat di kartu ini akan otomatis kosong saat berganti hari.
             </Text>
@@ -339,14 +475,22 @@ export default function User() {
           <View style={styles.heroTop}>
             <Text style={styles.heroLabel}>Kehadiran hari ini</Text>
             <Text style={styles.heroTime}>
-              {attendance.waktu === "--:--" ? "Belum check-in" : `Check-in ${attendance.waktu}`}
+              {dashboardLoading
+                ? "Memuat..."
+                : attendance.waktu === "--:--"
+                  ? "Belum check-in"
+                  : `Check-in ${attendance.waktu}`}
             </Text>
           </View>
           <View style={styles.heroStatusPill}>
-            <Text style={styles.heroStatusText}>{attendance.status}</Text>
+            <Text style={styles.heroStatusText}>
+              {dashboardLoading ? "Memuat status..." : attendance.status}
+            </Text>
           </View>
           <Text style={styles.heroHelper}>
-            Ringkasan status kehadiran tampil otomatis dan terhubung real-time.
+            {dashboardLoading
+              ? "Data akun sedang disinkronkan."
+              : "Ringkasan status kehadiran tampil otomatis dan terhubung real-time."}
           </Text>
         </TouchableOpacity>
 
@@ -366,22 +510,6 @@ export default function User() {
                 <Text style={styles.quickDescription}>{item.description}</Text>
               </TouchableOpacity>
             ))}
-          </View>
-        </View>
-
-        <View style={styles.detailCard}>
-          <Text style={styles.detailTitle}>Ringkasan Hari Ini</Text>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Status</Text>
-            <Text style={[styles.detailValue, { color: statusColor }]}>{attendance.status}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Kelas</Text>
-            <Text style={styles.detailValue}>{profile.kelas}</Text>
-          </View>
-          <View style={styles.detailRow}>
-            <Text style={styles.detailLabel}>Metode</Text>
-            <Text style={styles.detailValue}>Scan QR</Text>
           </View>
         </View>
 
@@ -422,6 +550,35 @@ const styles = StyleSheet.create({
     gap: 10,
     flexWrap: "wrap",
     justifyContent: "flex-end",
+  },
+  syncChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: AppTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  syncChipActive: {
+    backgroundColor: AppTheme.colors.primarySoft,
+    borderColor: AppTheme.colors.primarySoft,
+  },
+  syncDot: {
+    width: 8,
+    height: 8,
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.colors.success,
+  },
+  syncDotActive: {
+    backgroundColor: AppTheme.colors.primary,
+  },
+  syncChipText: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
   },
   brand: {
     ...AppTheme.typography.display,
@@ -633,34 +790,5 @@ const styles = StyleSheet.create({
     lineHeight: 17,
     fontSize: 12,
     marginTop: 6,
-  },
-  detailCard: {
-    backgroundColor: AppTheme.colors.surface,
-    borderRadius: AppTheme.radius.xl,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    marginTop: 18,
-  },
-  detailTitle: {
-    fontSize: 18,
-    fontWeight: "800",
-    color: AppTheme.colors.text,
-    marginBottom: 12,
-  },
-  detailRow: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    paddingVertical: 8,
-    borderBottomWidth: 1,
-    borderBottomColor: AppTheme.colors.border,
-  },
-  detailLabel: {
-    color: AppTheme.colors.textMuted,
-  },
-  detailValue: {
-    color: AppTheme.colors.text,
-    fontWeight: "700",
-    textTransform: "capitalize",
   },
 })

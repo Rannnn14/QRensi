@@ -4,6 +4,9 @@ export const normalizeStudentName = (value: string) =>
     .trim()
     .toUpperCase()
 
+export const normalizeStudentNisn = (value: string) =>
+  String(value ?? "").replace(/\D+/g, "").trim()
+
 export const getComparableStudentName = (value: string) =>
   normalizeStudentName(value).replace(/\s+/g, "")
 

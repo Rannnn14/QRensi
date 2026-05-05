@@ -1,6 +1,6 @@
 import { Ionicons } from "@expo/vector-icons"
 import { router } from "expo-router"
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { AdminBottomNav } from "../../components/admin-bottom-nav"
@@ -9,7 +9,7 @@ import { SectionHeader } from "../../components/ui/section-header"
 import { supabase } from "../../lib/supabase"
 import { supabaseAdmin } from "../../lib/supabaseAdmin"
 import { prepareNotifications, sendLocalNotification } from "../../lib/notifications"
-import { PASSWORD_REQUEST_TYPE, formatSubmissionDate, formatSubmissionTime, getSubmissionDisplayType } from "../../lib/pengajuan"
+import { formatSubmissionDate, formatSubmissionTime, getSubmissionDisplayType } from "../../lib/pengajuan"
 
 const adminActions = [
   {
@@ -42,6 +42,8 @@ export default function Admin() {
   })
   const [refreshing, setRefreshing] = useState(false)
   const [pendingSubmissions, setPendingSubmissions] = useState<PendingSubmission[]>([])
+  const refreshTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const lastNotificationIdRef = useRef<string | null>(null)
 
   const logout = async () => {
     await supabase.auth.signOut()
@@ -54,14 +56,12 @@ export default function Admin() {
       supabaseAdmin
         .from("pengajuan")
         .select("*", { count: "exact", head: true })
-        .eq("status", "pending")
-        .neq("jenis", PASSWORD_REQUEST_TYPE),
+        .eq("status", "pending"),
       supabase.from("absensi").select("*", { count: "exact", head: true }),
       supabaseAdmin
         .from("pengajuan")
         .select("id, nama, kelas, jenis, created_at")
         .eq("status", "pending")
-        .neq("jenis", PASSWORD_REQUEST_TYPE)
         .order("created_at", { ascending: false })
         .limit(5),
     ])
@@ -74,32 +74,62 @@ export default function Admin() {
     setPendingSubmissions((pendingListResult.data || []) as PendingSubmission[])
   }
 
+  const scheduleCountsRefresh = () => {
+    if (refreshTimeoutRef.current) {
+      clearTimeout(refreshTimeoutRef.current)
+    }
+
+    refreshTimeoutRef.current = setTimeout(() => {
+      refreshTimeoutRef.current = null
+      fetchCounts().catch((error) => {
+        console.log("Gagal memuat dashboard admin:", error)
+      })
+    }, 250)
+  }
+
   useEffect(() => {
-    prepareNotifications()
-    fetchCounts()
+    prepareNotifications().catch((error) => {
+      console.log("Notifikasi admin tidak siap:", error)
+    })
+    fetchCounts().catch((error) => {
+      console.log("Gagal memuat dashboard admin:", error)
+    })
 
     const userSub = supabase
       .channel("public:profiles")
-      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, fetchCounts)
+      .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
+        scheduleCountsRefresh()
+      })
       .subscribe()
 
     const submissionSub = supabase
         .channel("public:pengajuan")
         .on("postgres_changes", { event: "*", schema: "public", table: "pengajuan" }, (payload) => {
-        if (payload.eventType === "INSERT" && payload.new?.jenis !== PASSWORD_REQUEST_TYPE) {
+        const payloadId = typeof payload.new === "object" && payload.new ? String((payload.new as { id?: string }).id || "") : ""
+
+        if (payload.eventType === "INSERT" && payloadId && lastNotificationIdRef.current !== payloadId) {
+          lastNotificationIdRef.current = payloadId
           sendLocalNotification("Pengajuan baru", "Ada pengajuan baru yang masuk ke panel admin.")
+            .catch((error) => {
+              console.log("Gagal mengirim notifikasi admin:", error)
+            })
         }
 
-        fetchCounts()
+        scheduleCountsRefresh()
       })
       .subscribe()
 
     const attendanceSub = supabase
       .channel("public:absensi")
-      .on("postgres_changes", { event: "*", schema: "public", table: "absensi" }, fetchCounts)
+      .on("postgres_changes", { event: "*", schema: "public", table: "absensi" }, () => {
+        scheduleCountsRefresh()
+      })
       .subscribe()
 
     return () => {
+      if (refreshTimeoutRef.current) {
+        clearTimeout(refreshTimeoutRef.current)
+      }
       supabase.removeChannel(userSub)
       supabase.removeChannel(submissionSub)
       supabase.removeChannel(attendanceSub)
@@ -108,8 +138,11 @@ export default function Admin() {
 
   const onRefresh = async () => {
     setRefreshing(true)
-    await fetchCounts()
-    setRefreshing(false)
+    try {
+      await fetchCounts()
+    } finally {
+      setRefreshing(false)
+    }
   }
 
   return (
@@ -159,7 +192,7 @@ export default function Admin() {
             <Text style={styles.noticeMeta}>{counts.pengajuan} pending</Text>
           </View>
           {pendingSubmissions.length === 0 ? (
-            <Text style={styles.noticeEmpty}>Belum ada pengajuan izin atau sakit yang menunggu.</Text>
+            <Text style={styles.noticeEmpty}>Belum ada pengajuan yang menunggu.</Text>
           ) : (
             pendingSubmissions.map((item) => (
               <View key={item.id} style={styles.noticeItem}>

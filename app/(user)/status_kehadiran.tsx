@@ -1,5 +1,5 @@
-import { View, Text, StyleSheet, ActivityIndicator, RefreshControl } from "react-native"
-import { useEffect, useState } from "react"
+import { View, Text, StyleSheet, RefreshControl } from "react-native"
+import { useEffect, useRef, useState } from "react"
 import { supabase } from "../../lib/supabase"
 import { supabaseAdmin } from "../../lib/supabaseAdmin"
 import { Ionicons } from "@expo/vector-icons"
@@ -14,17 +14,23 @@ import { PageHeader } from "../../components/ui/page-header"
 import { ScreenShell } from "../../components/ui/screen-shell"
 
 export default function StatusKehadiran() {
-  const [status, setStatus] = useState("")
+  const [attendance, setAttendance] = useState({ status: "", waktu: "--:--" })
   const [loading, setLoading] = useState(true)
+  const [backgroundSyncing, setBackgroundSyncing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
+  const hasLoadedOnceRef = useRef(false)
   const handleBack = useFeatureBack({ fallbackRoute: "/user" })
 
   const refreshFallbackStatus = () => {
-    setStatus((prev) => (prev === "Belum Absen" || prev === "Tidak Hadir" ? getDefaultAttendanceStatus() : prev))
+    setAttendance((prev) =>
+      prev.status === "Belum Absen" || prev.status === "Tidak Hadir"
+        ? { ...prev, status: getDefaultAttendanceStatus() }
+        : prev
+    )
   }
 
   useEffect(() => {
-    getStatus()
+    getStatus(true)
 
     // Setup realtime subscription
     let subscription: any = null
@@ -47,9 +53,21 @@ export default function StatusKehadiran() {
             filter: `user_id=eq.${userId}`,
           },
           (payload) => {
-            const nextRow = payload.new as { status?: string; tanggal?: string } | undefined
+            const nextRow = payload.new as
+              | { status?: string; tanggal?: string; waktu?: string | null; created_at?: string }
+              | undefined
             if (nextRow?.tanggal === today) {
-              setStatus(nextRow.status || getDefaultAttendanceStatus())
+              setAttendance({
+                status: nextRow.status || getDefaultAttendanceStatus(),
+                waktu: nextRow.waktu
+                  ? String(nextRow.waktu).slice(0, 5)
+                  : nextRow.created_at
+                    ? new Date(nextRow.created_at).toLocaleTimeString("id-ID", {
+                        hour: "2-digit",
+                        minute: "2-digit",
+                      })
+                    : "--:--",
+              })
             }
           }
         )
@@ -65,13 +83,20 @@ export default function StatusKehadiran() {
     }
   }, [])
 
-  const getStatus = async () => {
+  const getStatus = async (showLoader = false) => {
+    if (showLoader || !hasLoadedOnceRef.current) {
+      setLoading(true)
+    } else {
+      setBackgroundSyncing(true)
+    }
+
     const { data: userData } = await supabase.auth.getUser()
     const userId = userData?.user?.id
 
     if (!userId) {
-      setStatus("User tidak ditemukan")
+      setAttendance({ status: "User tidak ditemukan", waktu: "--:--" })
       setLoading(false)
+      setBackgroundSyncing(false)
       setRefreshing(false)
       return
     }
@@ -80,18 +105,30 @@ export default function StatusKehadiran() {
 
     const { data, error } = await supabaseAdmin
       .from("absensi")
-      .select("*")
+      .select("status, waktu, created_at")
       .eq("user_id", userId)
       .eq("tanggal", today)
       .maybeSingle()
 
     if (error || !data) {
-      setStatus(getDefaultAttendanceStatus())
+      setAttendance({ status: getDefaultAttendanceStatus(), waktu: "--:--" })
     } else {
-      setStatus(data.status || getDefaultAttendanceStatus())
+      setAttendance({
+        status: data.status || getDefaultAttendanceStatus(),
+        waktu: data.waktu
+          ? String(data.waktu).slice(0, 5)
+          : data.created_at
+            ? new Date(data.created_at).toLocaleTimeString("id-ID", {
+                hour: "2-digit",
+                minute: "2-digit",
+              })
+            : "--:--",
+      })
     }
 
+    hasLoadedOnceRef.current = true
     setLoading(false)
+    setBackgroundSyncing(false)
     setRefreshing(false)
   }
 
@@ -100,7 +137,7 @@ export default function StatusKehadiran() {
     getStatus()
   }
 
-  const normalizedStatus = status.toLowerCase()
+  const normalizedStatus = attendance.status.toLowerCase()
   const statusTheme =
     normalizedStatus === "hadir"
       ? { bg: "#DFF6EF", text: "#17906A", note: "Kehadiranmu sudah tercatat hari ini." }
@@ -124,10 +161,11 @@ export default function StatusKehadiran() {
           title="Status Kehadiran"
           onBackPress={handleBack}
           rightSlot={
-            <View style={styles.dotMenu}>
-            <Ionicons name="ellipse" size={6} color="#BBA9F5" />
-            <Ionicons name="ellipse" size={6} color="#BBA9F5" />
-            <Ionicons name="ellipse" size={6} color="#BBA9F5" />
+            <View style={[styles.syncChip, backgroundSyncing && styles.syncChipActive]}>
+              <View style={[styles.syncDot, backgroundSyncing && styles.syncDotActive]} />
+              <Text style={styles.syncChipText}>
+                {backgroundSyncing ? "Menyinkronkan" : "Realtime"}
+              </Text>
             </View>
           }
         />
@@ -147,21 +185,35 @@ export default function StatusKehadiran() {
             })}
           </Text>
 
-          {loading ? (
-            <ActivityIndicator size="large" color="#6D3BFF" style={{ marginVertical: 24 }} />
-          ) : (
-            <>
-              <View style={[styles.statusPill, { backgroundColor: statusTheme.bg }]}>
-                <Text style={[styles.status, { color: statusTheme.text }]}>{status}</Text>
-              </View>
-              <Text style={styles.note}>{statusTheme.note}</Text>
-            </>
-          )}
+          <>
+            <View style={[styles.statusPill, { backgroundColor: statusTheme.bg }]}>
+              <Text style={[styles.status, { color: statusTheme.text }]}>
+                {attendance.status || "Belum Absen"}
+              </Text>
+            </View>
+            <Text style={styles.note}>
+              {loading
+                ? "Status sedang diperbarui."
+                : backgroundSyncing
+                  ? "Data sedang disinkronkan di latar belakang."
+                  : statusTheme.note}
+            </Text>
+          </>
 
           <View style={styles.detailCard}>
-            <Row label="Kelas" value="Siswa Aktif" />
-            <Row label="Metode" value="Scan QR" />
-            <Row label="Sinkronisasi" value="Realtime" />
+            <Row label="Jam check-in" value={attendance.waktu === "--:--" ? "Belum tercatat" : attendance.waktu} />
+            <Row
+              label="Update status"
+              value={
+                normalizedStatus === "hadir"
+                  ? "Scan berhasil"
+                  : normalizedStatus === "izin" || normalizedStatus === "sakit"
+                    ? "Disetujui admin"
+                    : normalizedStatus === "tidak hadir"
+                      ? "Lewat batas waktu"
+                      : "Menunggu check-in"
+              }
+            />
           </View>
         </ModalCard>
         </View>
@@ -180,9 +232,34 @@ const styles = StyleSheet.create({
   shell: {
     paddingBottom: 8,
   },
-  dotMenu: {
+  syncChip: {
     flexDirection: "row",
-    gap: 4,
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: AppTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  syncChipActive: {
+    backgroundColor: AppTheme.colors.primarySoft,
+    borderColor: AppTheme.colors.primarySoft,
+  },
+  syncDot: {
+    width: 8,
+    height: 8,
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.colors.success,
+  },
+  syncDotActive: {
+    backgroundColor: AppTheme.colors.primary,
+  },
+  syncChipText: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "700",
   },
   card: {
     padding: 22,
