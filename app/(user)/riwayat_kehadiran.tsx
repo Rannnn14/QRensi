@@ -7,6 +7,7 @@ import {
   Modal,
 } from "react-native"
 import { useEffect, useState, useCallback } from "react"
+import { useFocusEffect } from "expo-router"
 import { supabase } from "../../lib/supabase"
 import { supabaseAdmin } from "../../lib/supabaseAdmin"
 import { Ionicons } from "@expo/vector-icons"
@@ -134,15 +135,6 @@ export default function RiwayatKehadiran() {
       const nextAvailableDates = normalized.map((item) => item.tanggal)
       setData(normalized)
       setAvailableDates(nextAvailableDates)
-
-      if (normalized.length > 0) {
-        setSelectedDate((prev) => (nextAvailableDates.includes(prev) ? prev : normalized[0].tanggal))
-        setCalendarMonth((prev) => prev || normalized[0].tanggal.slice(0, 7))
-      } else {
-        const today = getLocalDateValue()
-        setSelectedDate(today)
-        setCalendarMonth((prev) => prev || today.slice(0, 7))
-      }
     } catch (error) {
       console.log("Gagal memuat riwayat kehadiran:", error)
       setData([])
@@ -151,6 +143,14 @@ export default function RiwayatKehadiran() {
       setRefreshing(false)
     }
   }, [resolveAttendanceStatus])
+
+  useFocusEffect(
+    useCallback(() => {
+      const today = getLocalDateValue()
+      setSelectedDate(today)
+      setCalendarMonth(today.slice(0, 7))
+    }, [])
+  )
 
   useEffect(() => {
     getRiwayat()

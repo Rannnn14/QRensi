@@ -423,28 +423,17 @@ export default function User() {
         <View style={styles.profileCard}>
           <View>
             <Text style={styles.mutedLabel}>Profil Siswa</Text>
-            <Text style={styles.profileName}>
-              {dashboardLoading && !profile.name ? "Memuat nama..." : profile.name || "-"}
-            </Text>
-            <Text style={styles.profileMeta}>
-              {dashboardLoading && profile.kelas === "-" ? "Memuat kelas..." : `Kelas ${profile.kelas}`}
-            </Text>
-          </View>
-          <View style={styles.statusBadge}>
-            <Text style={styles.statusBadgeText}>{dashboardLoading ? "Sinkron..." : "Aktif"}</Text>
+            <Text style={styles.profileName}>{profile.name || "-"}</Text>
+            <Text style={styles.profileMeta}>{`Kelas ${profile.kelas}`}</Text>
           </View>
         </View>
 
         <TouchableOpacity style={styles.noticeCard} onPress={() => router.push("/ajuan" as any)}>
           <View style={styles.noticeHeader}>
             <Text style={styles.noticeTitle}>Riwayat Pengajuan Hari Ini</Text>
-            <Text style={styles.noticeMeta}>{dashboardLoading ? "Memuat..." : `${todaySubmissions.length} item`}</Text>
+            <Text style={styles.noticeMeta}>{`${todaySubmissions.length} item`}</Text>
           </View>
-          {dashboardLoading ? (
-            <Text style={styles.noticeEmpty}>
-              Riwayat pengajuan sedang disiapkan.
-            </Text>
-          ) : todaySubmissions.length === 0 ? (
+          {todaySubmissions.length === 0 ? (
             <Text style={styles.noticeEmpty}>
               Belum ada pengajuan hari ini. Riwayat di kartu ini akan otomatis kosong saat berganti hari.
             </Text>
@@ -475,22 +464,14 @@ export default function User() {
           <View style={styles.heroTop}>
             <Text style={styles.heroLabel}>Kehadiran hari ini</Text>
             <Text style={styles.heroTime}>
-              {dashboardLoading
-                ? "Memuat..."
-                : attendance.waktu === "--:--"
-                  ? "Belum check-in"
-                  : `Check-in ${attendance.waktu}`}
+              {attendance.waktu === "--:--" ? "Belum check-in" : `Check-in ${attendance.waktu}`}
             </Text>
           </View>
           <View style={styles.heroStatusPill}>
-            <Text style={styles.heroStatusText}>
-              {dashboardLoading ? "Memuat status..." : attendance.status}
-            </Text>
+            <Text style={styles.heroStatusText}>{attendance.status}</Text>
           </View>
           <Text style={styles.heroHelper}>
-            {dashboardLoading
-              ? "Data akun sedang disinkronkan."
-              : "Ringkasan status kehadiran tampil otomatis dan terhubung real-time."}
+            Ringkasan status kehadiran tampil otomatis dan terhubung real-time.
           </Text>
         </TouchableOpacity>
 

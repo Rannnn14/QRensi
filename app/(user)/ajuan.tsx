@@ -134,7 +134,6 @@ export default function Ajuan() {
   const [jenis, setJenis] = useState<"izin" | "sakit">("izin");
   const [keterangan, setKeterangan] = useState("");
   const [loadingUser, setLoadingUser] = useState(true);
-  const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedImageUri, setSelectedImageUri] = useState("");
   const [selectedMimeType, setSelectedMimeType] = useState("image/jpeg");
@@ -174,8 +173,6 @@ export default function Ajuan() {
     try {
       if (showLoader || !hasLoadedOnce) {
         setLoadingUser(true);
-      } else {
-        setBackgroundSyncing(true);
       }
       const { data: authData } = await supabase.auth.getUser();
       if (!authData.user) throw new Error("User tidak ditemukan");
@@ -192,7 +189,6 @@ export default function Ajuan() {
       Alert.alert("Error", err.message);
     } finally {
       setLoadingUser(false);
-      setBackgroundSyncing(false);
     }
   }, [hasLoadedOnce]);
 
@@ -212,7 +208,6 @@ export default function Ajuan() {
       Alert.alert("Error", err.message);
     } finally {
       setRefreshing(false);
-      setBackgroundSyncing(false);
     }
   }, [fetchSubmissionHistory, fetchUserProfile]);
 
@@ -511,12 +506,6 @@ export default function Ajuan() {
     >
       <View style={styles.shell}>
         <PageHeader eyebrow="Pengajuan siswa" title="Izin dan Sakit" onBackPress={handleBack} />
-        <View style={[styles.syncChip, backgroundSyncing && styles.syncChipActive]}>
-          <View style={[styles.syncDot, backgroundSyncing && styles.syncDotActive]} />
-          <Text style={styles.syncChipText}>
-            {backgroundSyncing ? "Menyinkronkan perubahan" : "Realtime aktif"}
-          </Text>
-        </View>
 
         <InfoCard
           title="Ajukan izin atau sakit"
@@ -669,36 +658,6 @@ const styles = StyleSheet.create({
   shell: {
     paddingBottom: 8,
     gap: 14,
-  },
-  syncChip: {
-    alignSelf: "flex-start",
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: AppTheme.colors.surface,
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    borderRadius: AppTheme.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  syncChipActive: {
-    backgroundColor: AppTheme.colors.primarySoft,
-    borderColor: AppTheme.colors.primarySoft,
-  },
-  syncDot: {
-    width: 8,
-    height: 8,
-    borderRadius: AppTheme.radius.pill,
-    backgroundColor: AppTheme.colors.success,
-  },
-  syncDotActive: {
-    backgroundColor: AppTheme.colors.primary,
-  },
-  syncChipText: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: "700",
   },
   sectionCard: {
     padding: 18,
