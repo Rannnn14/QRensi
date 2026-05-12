@@ -23,10 +23,11 @@ export function AppCard({ style, tone = "default", ...props }: Props) {
 const styles = StyleSheet.create({
   base: {
     backgroundColor: AppTheme.colors.surface,
-    borderRadius: AppTheme.radius.lg,
+    borderRadius: AppTheme.radius.xl,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
     padding: AppTheme.spacing.lg,
+    ...AppTheme.shadow.sm,
   },
   hero: {
     backgroundColor: AppTheme.colors.primary,

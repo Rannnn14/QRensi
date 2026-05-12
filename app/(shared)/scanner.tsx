@@ -40,7 +40,7 @@ export default function Scanner() {
     setScanned(true);
 
     if (attendanceClosed) {
-      setStatusText(`Waktu kehadiran sudah habis. Scan hanya tersedia sampai jam ${getSubmissionCutoffLabel()}.`);
+      setStatusText(`Waktu kehadiran sudah habis. Pemindaian hanya tersedia sampai jam ${getSubmissionCutoffLabel()}.`);
       setStatusColor("#FA5252");
       return;
     }
@@ -60,7 +60,7 @@ export default function Scanner() {
       .single();
 
     if (profileError || !profile) {
-      setStatusText("User tidak ditemukan");
+      setStatusText("Siswa tidak ditemukan");
       setStatusColor("#FA5252");
       return;
     }
@@ -130,7 +130,7 @@ export default function Scanner() {
     <ScreenShell viewProps={{ style: styles.container }} footer={<AdminBottomNav activeKey="scanner" />}>
       
         <View style={styles.header}>
-          <PageHeader eyebrow="Pemindaian cepat" title="Scan QR Absensi" onBackPress={handleBack} />
+          <PageHeader eyebrow="Pemindaian cepat" title="Pindai QR Absensi" onBackPress={handleBack} />
         </View>
 
         <InfoCard
@@ -171,7 +171,7 @@ export default function Scanner() {
 
         {scanned && (
           <AppButton
-            label="Scan Lagi"
+            label="Pindai Lagi"
             style={styles.button}
             onPress={() => {
               setScanned(false);

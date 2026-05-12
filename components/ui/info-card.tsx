@@ -42,9 +42,12 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.xl,
     padding: AppTheme.spacing.lg,
     marginBottom: AppTheme.spacing.lg,
+    ...AppTheme.shadow.sm,
   },
   primary: {
     backgroundColor: AppTheme.colors.primary,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.primaryMuted,
   },
   surface: {
     backgroundColor: AppTheme.colors.surface,

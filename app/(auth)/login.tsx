@@ -165,7 +165,7 @@ export default function Login() {
     }
 
     if (forgotPassword.length < 6) {
-      Alert.alert("Info", "Password baru minimal 6 karakter.");
+      Alert.alert("Info", "Kata sandi baru minimal 6 karakter.");
       return;
     }
 
@@ -228,7 +228,7 @@ export default function Login() {
 
       if (isAdminAccount) {
         if (storedNisn) {
-          throw new Error("Email ini terdaftar sebagai akun siswa. Gunakan tab User.");
+          throw new Error("Email ini terdaftar sebagai akun siswa. Gunakan tab Siswa.");
         }
 
         const { error: passwordError } = await supabaseAdmin.auth.admin.updateUserById(authUser.id, {
@@ -239,7 +239,7 @@ export default function Login() {
           throw passwordError;
         }
 
-        Alert.alert("Berhasil", "Password admin berhasil diganti.");
+        Alert.alert("Berhasil", "Kata sandi admin berhasil diganti.");
         closeForgotPasswordModal();
         return;
       }
@@ -309,7 +309,7 @@ export default function Login() {
       : "Apakah admin yakin ingin ganti password :) ??";
 
     Alert.alert(
-      "Konfirmasi Ganti Password",
+      "Konfirmasi Ganti Kata Sandi",
       confirmMessage,
       [
         { text: "Periksa Lagi", style: "cancel" },
@@ -330,24 +330,47 @@ export default function Login() {
     >
       <ScrollView contentContainerStyle={{ flexGrow: 1 }} bounces={false}>
         <View style={styles.headerContainer}>
+          <View style={styles.heroGlowLarge} />
+          <View style={styles.heroGlowSmall} />
+
           <View style={styles.logoWrapper}>
             <Image
-              source={require("../../assets/images/react-logo.png")}
-              style={styles.logo}
+              source={require("../../assets/images/logo_qrensii.png")}
+              style={styles.logoPrimary}
               resizeMode="contain"
             />
-            <Text style={styles.brandName}>QRensi</Text>
+            <Text style={styles.appTitle}>Aplikasi QRensi</Text>
+            <Text style={styles.appSubtitle}>
+              Sistem absensi digital yang cepat, aman, dan mudah digunakan.
+            </Text>
           </View>
 
           <View style={styles.waveDecorator} />
         </View>
 
         <AppCard style={styles.formContainer}>
-          <Text style={styles.welcomeEyebrow}>Secure school attendance</Text>
-          <Text style={styles.welcomeText}>Masuk ke panel QRensi</Text>
+          <View style={styles.formHeader}>
+            <Text style={styles.welcomeEyebrow}>Absensi sekolah aman</Text>
+            <Text style={styles.welcomeText}>Masuk ke panel QRensi</Text>
+          </View>
           <Text style={styles.welcomeCaption}>
-            Gunakan akun yang sudah terdaftar untuk mengakses dashboard admin atau siswa.
+            Gunakan akun yang sudah terdaftar untuk mengakses dasbor admin atau siswa.
           </Text>
+
+          <View style={styles.trustRow}>
+            <View style={styles.trustPill}>
+              <Ionicons name="shield-checkmark-outline" size={14} color={AppTheme.colors.primary} />
+              <Text style={styles.trustPillText}>Aman</Text>
+            </View>
+            <View style={styles.trustPill}>
+              <Ionicons name="qr-code-outline" size={14} color={AppTheme.colors.primary} />
+              <Text style={styles.trustPillText}>QR Absensi</Text>
+            </View>
+            <View style={styles.trustPill}>
+              <Ionicons name="people-outline" size={14} color={AppTheme.colors.primary} />
+              <Text style={styles.trustPillText}>Admin & Siswa</Text>
+            </View>
+          </View>
 
           <AppInput
             placeholder="Email"
@@ -358,7 +381,7 @@ export default function Login() {
           />
 
           <AppInput
-            placeholder="Password"
+            placeholder="Kata sandi"
             value={password}
             secureTextEntry={!isPasswordVisible}
             onChangeText={setPassword}
@@ -372,10 +395,10 @@ export default function Login() {
             style={styles.forgotButton}
             onPress={() => setShowForgotPassword(true)}
           >
-            <Text style={styles.forgotButtonText}>Lupa password?</Text>
+            <Text style={styles.forgotButtonText}>Lupa kata sandi?</Text>
           </TouchableOpacity>
 
-          <AppButton label="Login" onPress={handleLogin} />
+          <AppButton label="Masuk" onPress={handleLogin} />
         </AppCard>
       </ScrollView>
 
@@ -402,7 +425,7 @@ export default function Login() {
                 contentContainerStyle={styles.requestContent}
               >
                 <View style={styles.modalTitleWrap}>
-                  <Text style={styles.requestTitle}>Atur Ulang Password</Text>
+                  <Text style={styles.requestTitle}>Atur Ulang Kata Sandi</Text>
                 </View>
 
                 <View style={styles.infoBanner}>
@@ -428,7 +451,7 @@ export default function Login() {
                 />
 
                 <AppInput
-                  placeholder="Password baru"
+                  placeholder="Kata sandi baru"
                   value={forgotPassword}
                   onChangeText={setForgotPassword}
                   secureTextEntry={!isForgotPasswordVisible}
@@ -437,7 +460,7 @@ export default function Login() {
                 />
 
                 <AppInput
-                  placeholder="Konfirmasi password baru"
+                  placeholder="Konfirmasi kata sandi baru"
                   value={forgotPasswordConfirm}
                   onChangeText={setForgotPasswordConfirm}
                   secureTextEntry={!isForgotPasswordConfirmVisible}
@@ -449,7 +472,7 @@ export default function Login() {
                   <View style={styles.warningBanner}>
                     <Ionicons name="alert-circle-outline" size={18} color={AppTheme.colors.danger} />
                     <Text style={styles.warningBannerText}>
-                      Konfirmasi password belum sama dengan password baru.
+                      Konfirmasi kata sandi belum sama dengan kata sandi baru.
                     </Text>
                   </View>
                 ) : null}
@@ -489,47 +512,82 @@ const styles = StyleSheet.create({
     backgroundColor: AppTheme.colors.background,
   },
   headerContainer: {
-    height: 320,
-    backgroundColor: AppTheme.colors.accent,
+    minHeight: 340,
+    backgroundColor: AppTheme.colors.primary,
     justifyContent: "center",
-    alignItems: "center",
     position: "relative",
+    overflow: "hidden",
+    paddingHorizontal: 20,
+    paddingTop: 36,
+    paddingBottom: 72,
   },
   logoWrapper: {
     alignItems: "center",
     zIndex: 2,
-    marginTop: -20,
+    gap: 10,
   },
-  logo: {
-    width: 90,
-    height: 90,
-    marginBottom: 5,
+  heroGlowLarge: {
+    position: "absolute",
+    top: -70,
+    right: -30,
+    width: 180,
+    height: 180,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.06)",
   },
-  brandName: {
+  heroGlowSmall: {
+    position: "absolute",
+    top: 110,
+    left: -40,
+    width: 110,
+    height: 110,
+    borderRadius: 999,
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  logoPrimary: {
+    width: 220,
+    height: 84,
+  },
+  appTitle: {
     color: AppTheme.colors.white,
-    fontSize: 22,
-    fontWeight: "bold",
-    letterSpacing: 1.5,
+    fontSize: 24,
+    fontWeight: "800",
+    letterSpacing: 0.3,
+    textAlign: "center",
+  },
+  appSubtitle: {
+    color: "rgba(255,255,255,0.82)",
+    fontSize: 13,
+    lineHeight: 18,
+    textAlign: "center",
+    maxWidth: 260,
   },
   waveDecorator: {
     position: "absolute",
-    bottom: -50,
+    bottom: -58,
     left: 0,
     right: 0,
-    height: 100,
+    height: 116,
     backgroundColor: AppTheme.colors.background,
-    borderTopLeftRadius: 100,
-    transform: [{ scaleX: 1.5 }],
+    borderTopLeftRadius: 120,
+    borderTopRightRadius: 120,
+    transform: [{ scaleX: 1.18 }],
   },
   formContainer: {
     marginHorizontal: 20,
-    marginTop: -28,
+    marginTop: -32,
     gap: AppTheme.spacing.md,
+    borderRadius: 26,
+    padding: 20,
+    ...AppTheme.shadow.md,
+  },
+  formHeader: {
+    gap: 6,
   },
   welcomeEyebrow: {
     ...AppTheme.typography.eyebrow,
     textTransform: "uppercase",
-    letterSpacing: 0.8,
+    letterSpacing: 1,
   },
   welcomeText: {
     ...AppTheme.typography.title,
@@ -537,7 +595,29 @@ const styles = StyleSheet.create({
   welcomeCaption: {
     ...AppTheme.typography.body,
     color: AppTheme.colors.textMuted,
+    marginBottom: 4,
+  },
+  trustRow: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
     marginBottom: AppTheme.spacing.sm,
+  },
+  trustPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.colors.surfaceMuted,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  trustPillText: {
+    color: AppTheme.colors.primary,
+    fontSize: 12,
+    fontWeight: "700",
   },
   errorText: {
     color: AppTheme.colors.danger,
@@ -546,6 +626,7 @@ const styles = StyleSheet.create({
   },
   forgotButton: {
     alignSelf: "flex-start",
+    marginTop: 2,
   },
   forgotButtonText: {
     color: AppTheme.colors.primary,

@@ -51,7 +51,6 @@ const getStatusColor = (status: string) => {
 export default function PengajuanAdmin() {
   const [pengajuanList, setPengajuanList] = useState<Pengajuan[]>([]);
   const [loading, setLoading] = useState(true);
-  const [backgroundSyncing, setBackgroundSyncing] = useState(false);
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
@@ -103,8 +102,6 @@ export default function PengajuanAdmin() {
   const fetchPengajuan = useCallback(async (showLoader = false) => {
     if (showLoader || !hasLoadedOnceRef.current) {
       setLoading(true);
-    } else {
-      setBackgroundSyncing(true);
     }
 
     try {
@@ -127,10 +124,9 @@ export default function PengajuanAdmin() {
       setPengajuanList(withProof);
       hasLoadedOnceRef.current = true;
     } catch (err: any) {
-      Alert.alert("Error", err.message);
+      Alert.alert("Kesalahan", err.message);
     } finally {
       setLoading(false);
-      setBackgroundSyncing(false);
     }
   }, []);
 
@@ -242,7 +238,7 @@ export default function PengajuanAdmin() {
               setPengajuanList((prev) => prev.filter((submission) => submission.id !== item.id));
               Alert.alert("Berhasil", "Pengajuan berhasil disetujui.");
             } catch (err: any) {
-              Alert.alert("Error", err.message);
+              Alert.alert("Kesalahan", err.message);
             } finally {
               setProcessingId(null);
             }
@@ -272,7 +268,7 @@ export default function PengajuanAdmin() {
               setPengajuanList((prev) => prev.filter((submission) => submission.id !== item.id));
               Alert.alert("Berhasil", "Pengajuan berhasil ditolak.");
             } catch (err: any) {
-              Alert.alert("Error", err.message);
+              Alert.alert("Kesalahan", err.message);
             } finally {
               setProcessingId(null);
             }
@@ -301,17 +297,9 @@ export default function PengajuanAdmin() {
     >
       <View style={styles.shell}>
         <PageHeader
-          eyebrow="Review admin"
+          eyebrow="Tinjauan admin"
           title="Daftar Pengajuan"
           onBackPress={handleBack}
-          rightSlot={
-            <View style={[styles.syncChip, backgroundSyncing && styles.syncChipActive]}>
-              <View style={[styles.syncDot, backgroundSyncing && styles.syncDotActive]} />
-              <Text style={styles.syncChipText}>
-                {backgroundSyncing ? "Menyinkronkan" : "Realtime"}
-              </Text>
-            </View>
-          }
         />
 
         <InfoCard
@@ -320,7 +308,7 @@ export default function PengajuanAdmin() {
         />
 
         {pengajuanList.length === 0 && !loading && (
-          <Text style={styles.noDataText}>Tidak ada pengajuan pending.</Text>
+          <Text style={styles.noDataText}>Tidak ada pengajuan yang menunggu.</Text>
         )}
 
         {pengajuanList.map((item) => {
@@ -363,7 +351,7 @@ export default function PengajuanAdmin() {
                   onPress={() => approvePengajuan(item)}
                   disabled={processingId === item.id}
                 >
-                  <Text style={styles.buttonText}>Approve</Text>
+                  <Text style={styles.buttonText}>Setujui</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -371,7 +359,7 @@ export default function PengajuanAdmin() {
                   onPress={() => rejectPengajuan(item)}
                   disabled={processingId === item.id}
                 >
-                  <Text style={styles.buttonText}>Reject</Text>
+                  <Text style={styles.buttonText}>Tolak</Text>
                 </TouchableOpacity>
               </View>
             </View>
@@ -396,35 +384,6 @@ export default function PengajuanAdmin() {
 const styles = StyleSheet.create({
   shell: { paddingBottom: 8 },
   noDataText: { textAlign: "center", fontSize: 16, color: AppTheme.colors.textMuted },
-  syncChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: AppTheme.colors.surface,
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    borderRadius: AppTheme.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  syncChipActive: {
-    backgroundColor: AppTheme.colors.primarySoft,
-    borderColor: AppTheme.colors.primarySoft,
-  },
-  syncDot: {
-    width: 8,
-    height: 8,
-    borderRadius: AppTheme.radius.pill,
-    backgroundColor: AppTheme.colors.success,
-  },
-  syncDotActive: {
-    backgroundColor: AppTheme.colors.primary,
-  },
-  syncChipText: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: "700",
-  },
   card: {
     backgroundColor: AppTheme.colors.surface,
     padding: 16,

@@ -7,7 +7,7 @@ import { AppTheme } from "../constants/theme"
 const items = [
   { key: "status_kehadiran", label: "Status", icon: "checkmark-done-outline", route: "/status_kehadiran" },
   { key: "riwayat_kehadiran", label: "Riwayat", icon: "time-outline", route: "/riwayat_kehadiran" },
-  { key: "user", label: "Home", icon: "home", route: "/user" },
+  { key: "user", label: "Beranda", icon: "home", route: "/user" },
   { key: "ajuan", label: "Izin", icon: "document-text-outline", route: "/ajuan" },
   { key: "generate_qr", label: "Kode QR", icon: "qr-code-outline", route: "/generate_qr" },
 ]

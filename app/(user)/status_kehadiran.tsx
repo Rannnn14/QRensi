@@ -2,7 +2,6 @@ import { View, Text, StyleSheet, RefreshControl } from "react-native"
 import { useEffect, useRef, useState } from "react"
 import { supabase } from "../../lib/supabase"
 import { supabaseAdmin } from "../../lib/supabaseAdmin"
-import { Ionicons } from "@expo/vector-icons"
 import { UserBottomNav } from "../../components/user-bottom-nav"
 import { useFeatureBack } from "../../hooks/use-feature-back"
 import { getLocalDateValue } from "../../lib/date"
@@ -94,7 +93,7 @@ export default function StatusKehadiran() {
     const userId = userData?.user?.id
 
     if (!userId) {
-      setAttendance({ status: "User tidak ditemukan", waktu: "--:--" })
+      setAttendance({ status: "Siswa tidak ditemukan", waktu: "--:--" })
       setLoading(false)
       setBackgroundSyncing(false)
       setRefreshing(false)
@@ -201,17 +200,17 @@ export default function StatusKehadiran() {
           </>
 
           <View style={styles.detailCard}>
-            <Row label="Jam check-in" value={attendance.waktu === "--:--" ? "Belum tercatat" : attendance.waktu} />
+            <Row label="Jam absen" value={attendance.waktu === "--:--" ? "Belum tercatat" : attendance.waktu} />
             <Row
               label="Update status"
               value={
                 normalizedStatus === "hadir"
-                  ? "Scan berhasil"
+                  ? "Pindai berhasil"
                   : normalizedStatus === "izin" || normalizedStatus === "sakit"
                     ? "Disetujui admin"
                     : normalizedStatus === "tidak hadir"
                       ? "Lewat batas waktu"
-                      : "Menunggu check-in"
+                      : "Menunggu absen"
               }
             />
           </View>

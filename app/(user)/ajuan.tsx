@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useRef, useState, useCallback } from "react";
 import {
   View,
   Text,
@@ -89,7 +89,7 @@ const getSubmissionAccess = (items: SubmissionItem[]): SubmissionAccess => {
     return {
       mode: "edit-pending",
       activeSubmission: pendingSubmission,
-      helperText: "Pengajuan masih menunggu review admin. Anda bisa mengedit jenis, keterangan, atau foto sebelum diproses.",
+      helperText: "Pengajuan masih menunggu tinjauan admin. Anda bisa mengedit jenis, keterangan, atau foto sebelum diproses.",
     };
   }
 
@@ -140,7 +140,7 @@ export default function Ajuan() {
   const [refreshing, setRefreshing] = useState(false);
   const [submissionAccess, setSubmissionAccess] = useState<SubmissionAccess>(() => getSubmissionAccess([]));
   const [isEditingPendingForm, setIsEditingPendingForm] = useState(false);
-  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const hasLoadedOnceRef = useRef(false);
   const handleBack = useFeatureBack({ fallbackRoute: "/user" });
 
   const applyPickedImage = useCallback((asset: ImagePicker.ImagePickerAsset) => {
@@ -151,7 +151,12 @@ export default function Ajuan() {
   const syncSubmissionState = useCallback((items: SubmissionItem[]) => {
     const now = new Date();
     const todayItems = items.filter((item) => isTodaySubmission(item.created_at, now));
-    setSubmissionAccess(getSubmissionAccess(todayItems));
+    setSubmissionAccess((current) => {
+      const next = getSubmissionAccess(todayItems);
+      const currentKey = `${current.mode}-${current.activeSubmission?.id || ""}-${current.activeSubmission?.status || ""}-${current.helperText}`;
+      const nextKey = `${next.mode}-${next.activeSubmission?.id || ""}-${next.activeSubmission?.status || ""}-${next.helperText}`;
+      return currentKey === nextKey ? current : next;
+    });
   }, []);
 
   const fetchSubmissionHistory = useCallback(async (userId: string) => {
@@ -171,11 +176,11 @@ export default function Ajuan() {
 
   const fetchUserProfile = useCallback(async (showLoader = false) => {
     try {
-      if (showLoader || !hasLoadedOnce) {
+      if (showLoader || !hasLoadedOnceRef.current) {
         setLoadingUser(true);
       }
       const { data: authData } = await supabase.auth.getUser();
-      if (!authData.user) throw new Error("User tidak ditemukan");
+      if (!authData.user) throw new Error("Siswa tidak ditemukan");
 
       const { data: profile, error } = await supabase
         .from("profiles")
@@ -186,11 +191,11 @@ export default function Ajuan() {
       if (error) throw error;
       setUser(profile);
     } catch (err: any) {
-      Alert.alert("Error", err.message);
+      Alert.alert("Kesalahan", err.message);
     } finally {
       setLoadingUser(false);
     }
-  }, [hasLoadedOnce]);
+  }, []);
 
   const fetchUser = useCallback(async (showLoader = false) => {
     try {
@@ -198,14 +203,14 @@ export default function Ajuan() {
       const userId = authData.user?.id;
 
       if (!userId) {
-        throw new Error("User tidak ditemukan");
+        throw new Error("Siswa tidak ditemukan");
       }
 
       await fetchUserProfile(showLoader);
       await fetchSubmissionHistory(userId);
-      setHasLoadedOnce(true);
+      hasLoadedOnceRef.current = true;
     } catch (err: any) {
-      Alert.alert("Error", err.message);
+      Alert.alert("Kesalahan", err.message);
     } finally {
       setRefreshing(false);
     }
@@ -441,7 +446,7 @@ export default function Ajuan() {
       setSelectedMimeType("image/jpeg");
       await fetchSubmissionHistory(user.id);
     } catch (err: any) {
-      Alert.alert("Error", err.message);
+      Alert.alert("Kesalahan", err.message);
     } finally {
       setSubmitting(false);
     }
@@ -476,7 +481,7 @@ export default function Ajuan() {
         await fetchUser();
       }
     } catch (err: any) {
-      Alert.alert("Error", err.message);
+      Alert.alert("Kesalahan", err.message);
     } finally {
       setRefreshing(false);
     }
@@ -489,6 +494,8 @@ export default function Ajuan() {
   const isRetryRejected = submissionAccess.mode === "retry-rejected";
   const shouldShowForm = !isEditingPending || isEditingPendingForm;
   const latestSubmission = submissionAccess.activeSubmission;
+  const isSubmitDisabled = !user || loadingUser || submitting || isBlocked || submissionClosed;
+  const isPhotoDisabled = !user || loadingUser || isBlocked || submissionClosed;
   const statusTone =
     latestSubmission?.status === "approved"
       ? styles.statusApproved
@@ -509,7 +516,7 @@ export default function Ajuan() {
 
         <InfoCard
           title="Ajukan izin atau sakit"
-          description={`Pengajuan izin dan sakit hanya bisa dikirim sampai jam ${getSubmissionCutoffLabel()}. Pengajuan yang masih pending bisa diedit, lalu ada maksimal 1 kesempatan tambahan setelah disetujui atau ditolak.`}
+          description={`Pengajuan izin dan sakit hanya bisa dikirim sampai jam ${getSubmissionCutoffLabel()}. Pengajuan yang masih menunggu bisa diedit, lalu ada maksimal 1 kesempatan tambahan setelah disetujui atau ditolak.`}
         />
 
         <View style={styles.sectionCard}>
@@ -526,7 +533,7 @@ export default function Ajuan() {
                 <View>
                   <Text style={styles.statusTitle}>Status Pengajuan Hari Ini</Text>
                   <Text style={styles.statusMeta}>
-                    {getSubmissionDisplayType(latestSubmission.jenis)} • {formatSubmissionDateTime(latestSubmission.created_at)}
+                    {getSubmissionDisplayType(latestSubmission.jenis)} - {formatSubmissionDateTime(latestSubmission.created_at)}
                   </Text>
                 </View>
                 <View style={[styles.statusBadge, statusTone]}>
@@ -555,7 +562,7 @@ export default function Ajuan() {
                 <TouchableOpacity
                   style={[styles.jenisButton, jenis === "izin" && styles.jenisSelected]}
                   onPress={() => setJenis("izin")}
-                  disabled={!user || loadingUser || isBlocked || submissionClosed}
+                  disabled={isSubmitDisabled}
                 >
                   <Text style={[styles.jenisText, jenis === "izin" && styles.jenisTextSelected]}>Izin</Text>
                 </TouchableOpacity>
@@ -563,7 +570,7 @@ export default function Ajuan() {
                 <TouchableOpacity
                   style={[styles.jenisButton, jenis === "sakit" && styles.jenisSelected]}
                   onPress={() => setJenis("sakit")}
-                  disabled={!user || loadingUser || isBlocked || submissionClosed}
+                  disabled={isSubmitDisabled}
                 >
                   <Text style={[styles.jenisText, jenis === "sakit" && styles.jenisTextSelected]}>Sakit</Text>
                 </TouchableOpacity>
@@ -582,15 +589,15 @@ export default function Ajuan() {
                 value={keterangan}
                 onChangeText={setKeterangan}
                 multiline
-                editable={!!user && !loadingUser && !isBlocked && !submissionClosed}
+                editable={!isSubmitDisabled}
                 placeholderTextColor="#A89F9F"
               />
 
               <Text style={styles.label}>Bukti Foto</Text>
               <TouchableOpacity
-                style={[styles.photoPicker, (isBlocked || submissionClosed) && styles.submitDisabled]}
+                style={[styles.photoPicker, isPhotoDisabled && styles.photoPickerDisabled]}
                 onPress={pickImage}
-                disabled={!user || loadingUser || isBlocked || submissionClosed}
+                disabled={isPhotoDisabled}
               >
                 <Ionicons name="image-outline" size={18} color="#16324f" />
                 <Text style={styles.photoPickerText}>
@@ -623,20 +630,16 @@ export default function Ajuan() {
               ) : null}
 
               <TouchableOpacity
-                style={[styles.submitButton, (!user || loadingUser || submitting || isBlocked || submissionClosed) && styles.submitDisabled]}
+                style={[styles.submitButton, isSubmitDisabled && styles.submitButtonDisabled]}
                 onPress={submitAjuan}
-                disabled={!user || loadingUser || submitting || isBlocked || submissionClosed}
+                disabled={isSubmitDisabled}
               >
                 <Text style={styles.submitText}>
                   {submissionClosed
                     ? "Pengajuan Ditutup"
                     : isBlocked
                       ? "Batas Pengajuan Habis"
-                      : submitting
-                        ? isEditingPending
-                          ? "Menyimpan..."
-                          : "Mengirim..."
-                        : isEditingPending
+                      : isEditingPending
                           ? "Simpan Perubahan"
                           : isRetryApproved
                             ? "Kirim Koreksi Pengajuan"
@@ -791,6 +794,9 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     marginBottom: 14,
   },
+  photoPickerDisabled: {
+    opacity: 0.55,
+  },
   photoPickerText: {
     color: AppTheme.colors.primary,
     fontWeight: "700",
@@ -827,8 +833,8 @@ const styles = StyleSheet.create({
     borderRadius: AppTheme.radius.md,
     alignItems: "center",
   },
-  submitDisabled: {
-    backgroundColor: "#aaa",
+  submitButtonDisabled: {
+    backgroundColor: AppTheme.colors.borderStrong,
   },
   submitText: {
     color: AppTheme.colors.white,

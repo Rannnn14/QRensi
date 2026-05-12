@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, TouchableOpacity, ScrollView, RefreshControl } from "react-native"
+import { Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native"
 import { useEffect, useRef, useState } from "react"
 import { supabase } from "../../lib/supabase"
 import { router } from "expo-router"
@@ -73,8 +73,6 @@ const quickActions = [
 export default function User() {
   const [profile, setProfile] = useState<ProfileState>(emptyProfile)
   const [attendance, setAttendance] = useState<AttendanceState>(emptyAttendance())
-  const [dashboardLoading, setDashboardLoading] = useState(true)
-  const [backgroundSyncing, setBackgroundSyncing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [todaySubmissions, setTodaySubmissions] = useState<SubmissionState[]>([])
   const activeUserIdRef = useRef<string | null>(null)
@@ -156,13 +154,6 @@ export default function User() {
         nextUserId && activeUserIdRef.current && nextUserId !== activeUserIdRef.current
       )
       const shouldResetVisibleState = forceVisibleReset || isSwitchingUser
-      const shouldShowLoader = showLoader && (!hasLoadedOnceRef.current || shouldResetVisibleState)
-
-      if (shouldShowLoader) {
-        setDashboardLoading(true)
-      } else {
-        setBackgroundSyncing(true)
-      }
 
       removeRealtimeChannels()
       if (shouldResetVisibleState) {
@@ -178,7 +169,7 @@ export default function User() {
 
         activeUserIdRef.current = user.id
 
-        const fallbackName = user.email ? user.email.split("@")[0] : "User"
+        const fallbackName = user.email ? user.email.split("@")[0] : "Siswa"
         const { data: profileData, error: profileError } = await supabase
           .from("profiles")
           .select("nama, kelas")
@@ -293,11 +284,6 @@ export default function User() {
         if (!hasLoadedOnceRef.current || shouldResetVisibleState) {
           resetDashboardState()
         }
-      } finally {
-        if (loadTokenRef.current === currentLoadToken) {
-          setDashboardLoading(false)
-          setBackgroundSyncing(false)
-        }
       }
     }
 
@@ -310,8 +296,6 @@ export default function User() {
         hasLoadedOnceRef.current = false
         removeRealtimeChannels()
         resetDashboardState()
-        setDashboardLoading(false)
-        setBackgroundSyncing(false)
         return
       }
 
@@ -388,50 +372,57 @@ export default function User() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.topRow}>
-          <View style={styles.topCopy}>
-            <Text style={styles.brand}>QRensi</Text>
-            <Text style={styles.subtitle}>Student dashboard</Text>
-          </View>
+          <View style={styles.brandPanel}>
+            <View style={styles.brandAccent} />
+            <View style={styles.brandTopRow}>
+              <View style={styles.brandIdentity}>
+                <View style={styles.schoolLogoWrap}>
+                  <Image source={require("../../assets/images/Fatahillah.png")} style={styles.schoolLogo} resizeMode="contain" />
+                </View>
+                <View style={styles.schoolCopy}>
+                  <Text style={styles.schoolEyebrow}>Beranda Siswa</Text>
+                  <Text style={styles.schoolTitle} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.78}>SMPIT FATAHILLAH</Text>
+                  <Text style={styles.schoolCaption}>Pantau kehadiran, pengajuan, dan akses QR siswa dalam satu tempat.</Text>
+                </View>
+              </View>
 
-          <View style={styles.headerActions}>
-            <View style={[styles.syncChip, backgroundSyncing && styles.syncChipActive]}>
-              <View style={[styles.syncDot, backgroundSyncing && styles.syncDotActive]} />
-              <Text style={styles.syncChipText}>
-                {backgroundSyncing ? "Menyinkronkan" : "Realtime"}
-              </Text>
+              <TouchableOpacity
+                onPress={async () => {
+                  await supabase.auth.signOut()
+                  router.replace("/login")
+                }}
+                style={styles.logoutBtn}
+              >
+                <Ionicons name="log-out-outline" size={22} color="#FFFFFF" />
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity style={styles.iconButton} onPress={onRefresh} disabled={refreshing}>
-              <Ionicons
-                name={refreshing ? "hourglass-outline" : "refresh-outline"}
-                size={18}
-                color="#22405f"
-              />
-            </TouchableOpacity>
-            <TouchableOpacity
-              onPress={async () => {
-                await supabase.auth.signOut()
-                router.replace("/login")
-              }}
-              style={styles.logoutBtn}
-            >
-              <Ionicons name="log-out-outline" size={18} color="#FFFFFF" />
-              <Text style={styles.logoutText}>Keluar</Text>
-            </TouchableOpacity>
+
           </View>
         </View>
 
         <View style={styles.profileCard}>
-          <View>
+          <View style={styles.profileIconWrap}>
+            <Ionicons name="person" size={22} color={AppTheme.colors.white} />
+          </View>
+          <View style={styles.profileCopy}>
             <Text style={styles.mutedLabel}>Profil Siswa</Text>
-            <Text style={styles.profileName}>{profile.name || "-"}</Text>
-            <Text style={styles.profileMeta}>{`Kelas ${profile.kelas}`}</Text>
+            <Text style={styles.profileName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
+              {profile.name || "-"}
+            </Text>
+            <View style={styles.profileMetaRow}>
+              <View style={styles.profileBadge}>
+                <Ionicons name="school-outline" size={13} color={AppTheme.colors.primary} />
+                <Text style={styles.profileBadgeText}>{profile.kelas || "-"}</Text>
+              </View>
+              <Text style={styles.profileMeta}>Akun siswa aktif</Text>
+            </View>
           </View>
         </View>
 
         <TouchableOpacity style={styles.noticeCard} onPress={() => router.push("/ajuan" as any)}>
           <View style={styles.noticeHeader}>
             <Text style={styles.noticeTitle}>Riwayat Pengajuan Hari Ini</Text>
-            <Text style={styles.noticeMeta}>{`${todaySubmissions.length} item`}</Text>
+            <Text style={styles.noticeMeta}>{`${todaySubmissions.length} data`}</Text>
           </View>
           {todaySubmissions.length === 0 ? (
             <Text style={styles.noticeEmpty}>
@@ -464,14 +455,14 @@ export default function User() {
           <View style={styles.heroTop}>
             <Text style={styles.heroLabel}>Kehadiran hari ini</Text>
             <Text style={styles.heroTime}>
-              {attendance.waktu === "--:--" ? "Belum check-in" : `Check-in ${attendance.waktu}`}
+              {attendance.waktu === "--:--" ? "Belum absen" : `Absen ${attendance.waktu}`}
             </Text>
           </View>
           <View style={styles.heroStatusPill}>
             <Text style={styles.heroStatusText}>{attendance.status}</Text>
           </View>
           <Text style={styles.heroHelper}>
-            Ringkasan status kehadiran tampil otomatis dan terhubung real-time.
+            Ringkasan status kehadiran tampil otomatis setiap kali data berubah.
           </Text>
         </TouchableOpacity>
 
@@ -514,100 +505,121 @@ const styles = StyleSheet.create({
     paddingBottom: 28,
   },
   topRow: {
+    marginBottom: 12,
+  },
+  brandPanel: {
+    borderRadius: 24,
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 16,
+    backgroundColor: AppTheme.colors.primary,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.primaryMuted,
+    ...AppTheme.shadow.sm,
+    position: "relative",
+    overflow: "hidden",
+  },
+  brandAccent: {
+    position: "absolute",
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 6,
+    backgroundColor: AppTheme.colors.accent,
+  },
+  brandTopRow: {
     flexDirection: "row",
+    alignItems: "center",
     justifyContent: "space-between",
+    gap: 12,
+  },
+  brandIdentity: {
+    flex: 1,
+    flexDirection: "row",
     alignItems: "flex-start",
     gap: 12,
-    marginBottom: 14,
-    flexWrap: "wrap",
   },
-  topCopy: {
-    flex: 1,
-    minWidth: 150,
-  },
-  headerActions: {
-    flexDirection: "row",
+  schoolLogoWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 20,
+    backgroundColor: "rgba(255,255,255,0.12)",
     alignItems: "center",
-    gap: 10,
-    flexWrap: "wrap",
-    justifyContent: "flex-end",
-  },
-  syncChip: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: AppTheme.colors.surface,
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    borderRadius: AppTheme.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 8,
-  },
-  syncChipActive: {
-    backgroundColor: AppTheme.colors.primarySoft,
-    borderColor: AppTheme.colors.primarySoft,
-  },
-  syncDot: {
-    width: 8,
-    height: 8,
-    borderRadius: AppTheme.radius.pill,
-    backgroundColor: AppTheme.colors.success,
-  },
-  syncDotActive: {
-    backgroundColor: AppTheme.colors.primary,
-  },
-  syncChipText: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 12,
-    fontWeight: "700",
-  },
-  brand: {
-    ...AppTheme.typography.display,
-  },
-  subtitle: {
-    marginTop: 4,
-    fontSize: 13,
-    color: AppTheme.colors.textMuted,
-  },
-  iconButton: {
-    width: 42,
-    height: 42,
-    borderRadius: AppTheme.radius.sm,
-    backgroundColor: AppTheme.colors.primarySoft,
     justifyContent: "center",
-    alignItems: "center",
-    position: "relative",
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.14)",
+    padding: 8,
+  },
+  schoolLogo: {
+    width: 50,
+    height: 50,
+  },
+  schoolCopy: {
+    flex: 1,
+    gap: 2,
+  },
+  schoolEyebrow: {
+    color: "#C8DAEE",
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+  },
+  schoolTitle: {
+    fontSize: 18,
+    color: AppTheme.colors.white,
+    fontWeight: "900",
+    lineHeight: 24,
+    paddingRight: 4,
+  },
+  schoolCaption: {
+    color: "#C0D2E5",
+    fontSize: 11,
+    lineHeight: 16,
+    maxWidth: 232,
   },
   logoutBtn: {
-    flexDirection: "row",
     alignItems: "center",
-    gap: 6,
-    backgroundColor: AppTheme.colors.primary,
-    paddingHorizontal: 14,
-    paddingVertical: 11,
-    borderRadius: AppTheme.radius.sm,
-  },
-  logoutText: {
-    color: AppTheme.colors.white,
-    fontWeight: "700",
+    justifyContent: "center",
+    width: 48,
+    height: 48,
+    backgroundColor: "rgba(255,255,255,0.14)",
+    borderRadius: AppTheme.radius.md,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.22)",
+    alignSelf: "center",
   },
   profileCard: {
     backgroundColor: AppTheme.colors.surface,
-    borderRadius: AppTheme.radius.lg,
-    padding: 18,
+    borderRadius: AppTheme.radius.xl,
+    padding: 14,
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
+    gap: 12,
+    ...AppTheme.shadow.sm,
+  },
+  profileIconWrap: {
+    width: 52,
+    height: 52,
+    borderRadius: 18,
+    backgroundColor: AppTheme.colors.primary,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  profileCopy: {
+    flex: 1,
+    minWidth: 0,
   },
   noticeCard: {
     backgroundColor: AppTheme.colors.surface,
-    borderRadius: AppTheme.radius.lg,
+    borderRadius: AppTheme.radius.xl,
     padding: 16,
     marginTop: 16,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
+    ...AppTheme.shadow.sm,
   },
   noticeHeader: {
     flexDirection: "row",
@@ -662,19 +674,43 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   mutedLabel: {
-    fontSize: 12,
-    color: AppTheme.colors.textMuted,
-    marginBottom: 6,
+    fontSize: 11,
+    color: AppTheme.colors.primary,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.3,
+    marginBottom: 4,
   },
   profileName: {
-    fontSize: 23,
-    fontWeight: "800",
+    fontSize: 19,
+    fontWeight: "900",
     color: AppTheme.colors.text,
   },
+  profileMetaRow: {
+    marginTop: 8,
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  profileBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: AppTheme.colors.primarySoft,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+  },
+  profileBadgeText: {
+    color: AppTheme.colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+  },
   profileMeta: {
-    marginTop: 4,
-    color: AppTheme.colors.textMuted,
-    fontSize: 13,
+    color: AppTheme.colors.textSoft,
+    fontSize: 11,
+    fontWeight: "700",
   },
   statusBadge: {
     backgroundColor: AppTheme.colors.primarySoft,
@@ -694,6 +730,8 @@ const styles = StyleSheet.create({
     minHeight: 160,
     justifyContent: "space-between",
     marginTop: 16,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.primaryMuted,
   },
   heroTop: {
     flexDirection: "row",
@@ -703,12 +741,12 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   heroLabel: {
-    color: AppTheme.colors.primarySoft,
+    color: "#D4E2F0",
     fontSize: 13,
-    fontWeight: "600",
+    fontWeight: "700",
   },
   heroTime: {
-    color: "#b2c6db",
+    color: "#BDD0E2",
     fontSize: 12,
     textAlign: "right",
   },
@@ -717,7 +755,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingVertical: 10,
     borderRadius: AppTheme.radius.pill,
-    backgroundColor: AppTheme.colors.primaryMuted,
+    backgroundColor: "rgba(255,255,255,0.12)",
   },
   heroStatusText: {
     color: AppTheme.colors.white,
@@ -727,7 +765,7 @@ const styles = StyleSheet.create({
   },
   heroHelper: {
     marginTop: 12,
-    color: "#bdd0e2",
+    color: "#BDD0E2",
     fontSize: 12,
     lineHeight: 18,
   },
@@ -746,11 +784,12 @@ const styles = StyleSheet.create({
     maxWidth: "48.5%",
     flexGrow: 1,
     backgroundColor: AppTheme.colors.surface,
-    borderRadius: AppTheme.radius.lg,
+    borderRadius: AppTheme.radius.xl,
     padding: 16,
     minHeight: 132,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
+    ...AppTheme.shadow.sm,
   },
   quickIconWrap: {
     width: 34,

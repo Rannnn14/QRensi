@@ -17,10 +17,12 @@ import { InfoCard } from "../../components/ui/info-card"
 import { PageHeader } from "../../components/ui/page-header"
 import { ScreenShell } from "../../components/ui/screen-shell"
 import {
+  isValidStudentNisn,
   isStudentNameVerySimilar,
   normalizeStudentName,
   normalizeStudentNisn,
 } from "../../lib/student"
+import { createStudentAccount } from "../../lib/admin-user-management"
 
 export default function TambahUser() {
   const [email, setEmail] = useState("")
@@ -58,45 +60,27 @@ export default function TambahUser() {
       return
     }
 
+    if (!isValidStudentNisn(normalizedNisn)) {
+      Alert.alert("Error", "NISN harus terdiri dari 10 digit")
+      return
+    }
+
+    if (password.trim().length < 6) {
+      Alert.alert("Kesalahan", "Kata sandi minimal 6 karakter")
+      return
+    }
+
     const proceedCreateUser = async () => {
       setLoading(true)
 
       try {
-        const { data: authData, error: authError } =
-          await supabaseAdmin.auth.admin.createUser({
-            email,
-            password,
-            email_confirm: true,
-            user_metadata: {
-              full_name: namaUppercase,
-              class_name: kelas,
-              kelas,
-              nisn: normalizedNisn,
-              role: "user",
-            },
-          })
-
-        const userId = authData?.user?.id
-
-        if (authError?.message.includes("already registered")) {
-          throw new Error("Email sudah terdaftar")
-        }
-
-        if (authError) {
-          throw new Error(authError.message)
-        }
-
-        if (userId) {
-          const { error: profileError } = await supabaseAdmin.from("profiles").upsert({
-            id: userId,
-            role: "user",
-            nama: namaUppercase,
-            kelas,
-            nisn: normalizedNisn,
-          })
-
-          if (profileError) throw new Error(profileError.message)
-        }
+        await createStudentAccount({
+          email,
+          password,
+          nama: namaUppercase,
+          kelas,
+          nisn: normalizedNisn,
+        })
 
         Alert.alert("Berhasil", `Data ${namaUppercase} berhasil dibuat!`)
         setEmail("")
@@ -190,7 +174,7 @@ export default function TambahUser() {
         <View style={styles.shell}>
         <PageHeader
           eyebrow="Akun baru"
-          title="Tambah User"
+          title="Tambah Siswa"
           onBackPress={() => router.replace("/admin" as any)}
         />
 
@@ -214,6 +198,7 @@ export default function TambahUser() {
             value={nisn}
             onChangeText={(text) => setNisn(normalizeStudentNisn(text))}
             keyboardType="number-pad"
+            maxLength={10}
             autoCorrect={false}
             autoComplete="off"
           />
@@ -226,7 +211,7 @@ export default function TambahUser() {
           />
 
           <AppInput
-            placeholder="Password"
+            placeholder="Kata sandi"
             value={password}
             secureTextEntry={!showPassword}
             onChangeText={setPassword}
@@ -245,7 +230,7 @@ export default function TambahUser() {
             </Picker>
           </View>
 
-          <AppButton label={loading ? "Membuat..." : "Buat User"} onPress={createUser} />
+          <AppButton label={loading ? "Membuat..." : "Buat Siswa"} onPress={createUser} />
         </AppCard>
       </View>
     </ScreenShell>

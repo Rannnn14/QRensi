@@ -14,7 +14,7 @@ type SessionUser = {
 }
 
 const getFallbackName = (user: SessionUser) =>
-  user.user_metadata?.full_name || (user.email ? user.email.split("@")[0] : "User")
+  user.user_metadata?.full_name || (user.email ? user.email.split("@")[0] : "Siswa")
 
 const inferRole = (user: SessionUser, existingRole?: string | null) => {
   const metadataRole = String(user.user_metadata?.role || "").toLowerCase()

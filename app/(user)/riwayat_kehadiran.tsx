@@ -243,8 +243,8 @@ export default function RiwayatKehadiran() {
   const getStatusColor = (status: string | null | undefined) => {
     const normalized = resolveAttendanceStatus(status ? { status } : null)
     if (normalized === "hadir") return "#22C55E"
-    if (normalized === "izin") return "#F59E0B"
-    if (normalized === "sakit") return "#EF4444"
+    if (normalized === "izin") return "#2563EB"
+    if (normalized === "sakit") return "#EAB308"
     if (normalized === "tidak hadir") return AppTheme.colors.danger
     if (normalized === "belum ada data") return AppTheme.colors.textMuted
     return "#94A3B8"

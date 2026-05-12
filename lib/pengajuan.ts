@@ -36,14 +36,15 @@ export const getSubmissionDisplayNote = (jenis?: string | null, note?: string | 
   if (isPasswordRequest(jenis)) {
     const payload = parsePasswordRequestNote(note);
     if (!payload) {
-      return "Permintaan ganti password diajukan ke admin.";
+      return "Permintaan ganti kata sandi diajukan ke admin. Kata sandi baru disembunyikan dari daftar ajuan.";
     }
 
     const detailLines = [
       payload.email ? `Email login: ${payload.email}` : null,
       payload.role ? `Jenis akun: ${payload.role === "admin" ? "Admin" : "Siswa"}` : null,
       payload.nisn ? `NISN: ${payload.nisn}` : null,
-      `Alasan: ${payload.alasan}`,
+      payload.alasan ? `Alasan: ${payload.alasan}` : "Alasan: -",
+      "Kata sandi baru: Disembunyikan",
     ].filter(Boolean);
 
     return detailLines.join("\n");
@@ -55,7 +56,7 @@ export const getSubmissionDisplayNote = (jenis?: string | null, note?: string | 
 export const getSubmissionDisplayType = (jenis?: string | null) => {
   if (jenis === "izin") return "Izin";
   if (jenis === "sakit") return "Sakit";
-  if (isPasswordRequest(jenis)) return "Ganti Password";
+  if (isPasswordRequest(jenis)) return "Ganti Kata Sandi";
   return jenis || "-";
 };
 

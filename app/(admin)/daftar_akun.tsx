@@ -24,11 +24,17 @@ import { ScreenShell } from "../../components/ui/screen-shell"
 import { SectionHeader } from "../../components/ui/section-header"
 import {
   compareStudentNames,
+  isValidStudentNisn,
   isStudentNameVerySimilar,
   matchesStudentSearch,
   normalizeStudentName,
   normalizeStudentNisn,
 } from "../../lib/student"
+import {
+  createStudentAccount,
+  listAuthUserEmailsById,
+  updateStudentAccount,
+} from "../../lib/admin-user-management"
 
 type Profile = {
   id: string
@@ -36,6 +42,7 @@ type Profile = {
   kelas: string
   nisn?: string | null
   role?: string
+  email?: string | null
 }
 
 export default function DaftarAkun() {
@@ -52,7 +59,14 @@ export default function DaftarAkun() {
   const [createKelas, setCreateKelas] = useState("7 Banin")
   const [editNama, setEditNama] = useState("")
   const [editKelas, setEditKelas] = useState("7 Banin")
+  const [editEmail, setEditEmail] = useState("")
+  const [editPassword, setEditPassword] = useState("")
+  const [editPasswordConfirm, setEditPasswordConfirm] = useState("")
+  const [showCreatePassword, setShowCreatePassword] = useState(false)
+  const [showEditPassword, setShowEditPassword] = useState(false)
+  const [showEditPasswordConfirm, setShowEditPasswordConfirm] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
+  const [emailByUserId, setEmailByUserId] = useState<Record<string, string>>({})
   const [processingAction, setProcessingAction] = useState<"create" | "edit" | "delete" | "reset" | null>(null)
   const handleBack = useFeatureBack({
     fallbackRoute: "/admin",
@@ -73,34 +87,49 @@ export default function DaftarAkun() {
 
   const classes = ["7 Banin", "7 Banat", "8 Banin", "8 Banat", "9 Banin", "9 Banat"]
 
-  const getProfiles = useCallback(async () => {
-    const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("role", "user")
-      .order("nama", { ascending: true })
+  const getProfiles = useCallback(async (refreshEmails = false) => {
+    try {
+      let nextEmailByUserId = emailByUserId
+      if (refreshEmails || !Object.keys(emailByUserId).length) {
+        const authUserMap = await listAuthUserEmailsById()
+        nextEmailByUserId = Object.fromEntries(authUserMap.entries())
+        setEmailByUserId(nextEmailByUserId)
+      }
 
-    if (error) {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("role", "user")
+        .order("nama", { ascending: true })
+
+      if (error) {
+        throw error
+      }
+
+      if (data) {
+        setProfiles(
+          [...data]
+            .map((item) => ({
+              ...item,
+              email: nextEmailByUserId[item.id] || "",
+            }))
+            .sort((a, b) => compareStudentNames(a.nama, b.nama))
+        )
+      }
+    } catch (error) {
       console.log(error)
     }
-
-    if (data) {
-      setProfiles(
-        [...data].sort((a, b) => compareStudentNames(a.nama, b.nama))
-      )
-    }
-
-  }, [])
+  }, [emailByUserId])
 
   useEffect(() => {
     let realtimeChannel: any
 
     const setupRealtime = async () => {
-      await getProfiles()
+      await getProfiles(true)
       realtimeChannel = supabase
         .channel("public:profiles")
         .on("postgres_changes", { event: "*", schema: "public", table: "profiles" }, () => {
-          getProfiles()
+          getProfiles(false)
         })
         .subscribe()
     }
@@ -127,6 +156,7 @@ export default function DaftarAkun() {
     setCreateModalVisible(false)
     setCreateEmail("")
     setCreatePassword("")
+    setShowCreatePassword(false)
     setCreateNama("")
     setCreateNisn("")
     setCreateKelas(selectedClass || "7 Banin")
@@ -136,6 +166,11 @@ export default function DaftarAkun() {
     setEditingUser(user)
     setEditNama(normalizeStudentName(user.nama))
     setEditKelas(user.kelas)
+    setEditEmail((user.email || "").trim().toLowerCase())
+    setEditPassword("")
+    setEditPasswordConfirm("")
+    setShowEditPassword(false)
+    setShowEditPasswordConfirm(false)
     setEditModalVisible(true)
   }
 
@@ -144,6 +179,11 @@ export default function DaftarAkun() {
     setEditingUser(null)
     setEditNama("")
     setEditKelas("7 Banin")
+    setEditEmail("")
+    setEditPassword("")
+    setEditPasswordConfirm("")
+    setShowEditPassword(false)
+    setShowEditPasswordConfirm(false)
   }
 
   const isValidEmail = (value: string) => {
@@ -172,8 +212,30 @@ export default function DaftarAkun() {
     if (!editingUser) return
 
     const namaBaru = normalizeStudentName(editNama)
-    if (!namaBaru || !editKelas) {
-      Alert.alert("Error", "Nama dan kelas wajib diisi")
+    const emailBaru = editEmail.trim().toLowerCase()
+    const passwordBaru = editPassword.trim()
+    if (!namaBaru || !editKelas || !emailBaru) {
+      Alert.alert("Error", "Nama, email, dan kelas wajib diisi")
+      return
+    }
+
+    if (!isValidEmail(emailBaru)) {
+      Alert.alert("Error", "Format email tidak valid")
+      return
+    }
+
+    if (passwordBaru && passwordBaru.length < 6) {
+      Alert.alert("Kesalahan", "Kata sandi baru minimal 6 karakter")
+      return
+    }
+
+    if (passwordBaru && passwordBaru !== editPasswordConfirm.trim()) {
+      Alert.alert("Error", "Konfirmasi password baru belum sama")
+      return
+    }
+
+    if (!isValidStudentNisn(editingUser.nisn || "")) {
+      Alert.alert("Error", "NISN harus terdiri dari 10 digit")
       return
     }
 
@@ -209,35 +271,25 @@ export default function DaftarAkun() {
     try {
       setProcessingAction("edit")
 
-      await supabaseAdmin
-        .from("profiles")
-        .update({ nama: namaBaru, kelas: editKelas })
-        .eq("id", editingUser.id)
-        .throwOnError()
+      const updatedAccount = await updateStudentAccount({
+        userId: editingUser.id,
+        currentEmail: editingUser.email,
+        nextEmail: emailBaru,
+        nextName: namaBaru,
+        nextClass: editKelas,
+        nisn: editingUser.nisn,
+        nextPassword: passwordBaru || undefined,
+      })
 
       const syncResults = await Promise.allSettled([
-        (async () => {
-          const { error } = await supabaseAdmin.auth.admin.updateUserById(editingUser.id, {
-            user_metadata: {
-              full_name: namaBaru,
-              class_name: editKelas,
-              kelas: editKelas,
-              role: "user",
-            },
-          })
-
-          if (error) {
-            throw error
-          }
-        })(),
         supabaseAdmin
           .from("absensi")
-          .update({ nama: namaBaru, kelas: editKelas })
+          .update({ nama: updatedAccount.nama, kelas: updatedAccount.kelas })
           .eq("user_id", editingUser.id)
           .throwOnError(),
         supabaseAdmin
           .from("pengajuan")
-          .update({ nama: namaBaru, kelas: editKelas })
+          .update({ nama: updatedAccount.nama, kelas: updatedAccount.kelas })
           .eq("user_id", editingUser.id)
           .throwOnError(),
       ])
@@ -245,13 +297,24 @@ export default function DaftarAkun() {
       setProfiles((prev) =>
         prev
           .map((item) =>
-            item.id === editingUser.id ? { ...item, nama: namaBaru, kelas: editKelas } : item
+            item.id === editingUser.id
+              ? {
+                  ...item,
+                  nama: updatedAccount.nama,
+                  kelas: updatedAccount.kelas,
+                  email: updatedAccount.email,
+                }
+              : item
           )
           .sort((a, b) => compareStudentNames(a.nama, b.nama))
       )
+      setEmailByUserId((prev) => ({
+        ...prev,
+        [editingUser.id]: updatedAccount.email,
+      }))
 
       if (selectedClass === editingUser.kelas && editKelas !== editingUser.kelas) {
-        setSelectedClass(editKelas)
+        setSelectedClass(updatedAccount.kelas)
       }
 
       closeEditModal()
@@ -260,10 +323,17 @@ export default function DaftarAkun() {
       if (hasSyncWarning) {
         Alert.alert(
           "Berhasil Sebagian",
-          "Profil siswa berhasil diperbarui, tetapi ada data lama yang belum tersinkron penuh."
+          passwordBaru
+            ? "Data siswa tersimpan, tetapi ada sinkronisasi lanjutan yang belum sepenuhnya berhasil."
+            : "Profil siswa berhasil diperbarui, tetapi ada data lama yang belum tersinkron penuh."
         )
       } else {
-        Alert.alert("Berhasil", "Data siswa berhasil diperbarui.")
+        Alert.alert(
+          "Berhasil",
+          passwordBaru
+            ? "Data siswa dan password baru berhasil diperbarui."
+            : "Data siswa berhasil diperbarui."
+        )
       }
     } catch (error: any) {
       Alert.alert("Error", error.message || "Gagal memperbarui data siswa")
@@ -279,6 +349,16 @@ export default function DaftarAkun() {
 
     if (!emailBaru || !createPassword || !namaBaru || !nisnBaru || !createKelas) {
       Alert.alert("Error", "Semua kolom harus diisi")
+      return
+    }
+
+    if (createPassword.trim().length < 6) {
+      Alert.alert("Kesalahan", "Kata sandi minimal 6 karakter")
+      return
+    }
+
+    if (!isValidStudentNisn(nisnBaru)) {
+      Alert.alert("Error", "NISN harus terdiri dari 10 digit")
       return
     }
 
@@ -326,44 +406,19 @@ export default function DaftarAkun() {
           onPress: async () => {
             try {
               setProcessingAction("create")
+              const createdUser = await createStudentAccount({
+                email: emailBaru,
+                password: createPassword,
+                nama: namaBaru,
+                kelas: createKelas,
+                nisn: nisnBaru,
+              })
 
-              const { data: authData, error: authError } =
-                await supabaseAdmin.auth.admin.createUser({
-                  email: emailBaru,
-                  password: createPassword,
-                  email_confirm: true,
-                  user_metadata: {
-                    full_name: namaBaru,
-                    class_name: createKelas,
-                    kelas: createKelas,
-                    nisn: nisnBaru,
-                    role: "user",
-                  },
-                })
-
-              const userId = authData?.user?.id
-
-              if (authError?.message.includes("already registered")) {
-                throw new Error("Email sudah terdaftar")
-              }
-
-              if (authError) {
-                throw new Error(authError.message)
-              }
-
-              if (userId) {
-                const { error: profileError } = await supabaseAdmin.from("profiles").upsert({
-                  id: userId,
-                  role: "user",
-                  nama: namaBaru,
-                  kelas: createKelas,
-                  nisn: nisnBaru,
-                })
-
-                if (profileError) throw new Error(profileError.message)
-              }
-
-              await getProfiles()
+              setEmailByUserId((prev) => ({
+                ...prev,
+                [createdUser.id]: createdUser.email,
+              }))
+              await getProfiles(false)
               setSelectedClass(createKelas)
               closeCreateModal()
               Alert.alert("Berhasil", `Akun ${namaBaru} berhasil dibuat.`)
@@ -487,126 +542,127 @@ export default function DaftarAkun() {
 
   return (
     <ScreenShell viewProps={{ style: styles.container }} footer={<AdminBottomNav activeKey="daftar_akun" />}>
-        <PageHeader
-          eyebrow="Direktori akun"
-          title="Daftar Akun Siswa"
-          onBackPress={handleBack}
-          rightSlot={
-            <TouchableOpacity
-              style={styles.addHeaderButton}
-              onPress={() => {
-                setCreateKelas(selectedClass || "7 Banin")
-                setCreateModalVisible(true)
-              }}
-              disabled={processingAction === "create"}
-            >
-              <Ionicons name="add-circle" size={24} color={AppTheme.colors.white} />
-            </TouchableOpacity>
-          }
-        />
+      <PageHeader
+        eyebrow="Direktori akun"
+        title="Daftar Akun Siswa"
+        onBackPress={handleBack}
+        rightSlot={
+          <TouchableOpacity
+            style={styles.addHeaderButton}
+            onPress={() => {
+              setCreateKelas(selectedClass || "7 Banin")
+              setCreateModalVisible(true)
+            }}
+            disabled={processingAction === "create"}
+          >
+            <Ionicons name="add-circle" size={24} color={AppTheme.colors.white} />
+          </TouchableOpacity>
+        }
+      />
 
-        <InfoCard
-          title="Pilih kelas untuk melihat akun aktif"
-          description="Data akan diperbarui otomatis saat ada perubahan profil siswa. Gunakan tombol tambah di kanan atas untuk menambah akun baru."
-        />
+      <InfoCard
+        title="Pilih kelas untuk melihat akun aktif"
+        description="Admin dapat melihat email masuk siswa, mengubah data siswa, dan mengganti kata sandi baru tanpa menampilkan kata sandi lama."
+      />
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        >
-            <View style={styles.grid}>
-              {classes.map((kelas) => {
-                const jumlah = profiles.filter((user) => user.kelas === kelas).length
-                const active = selectedClass === kelas
-                return (
-                  <TouchableOpacity
-                    key={kelas}
-                    style={[styles.card, active && styles.cardActive]}
-                    onPress={() => setSelectedClass(kelas)}
-                  >
-                    <Ionicons name="school" size={26} color={active ? "#6D3BFF" : "#3A86FF"} />
-                    <Text style={styles.kelasText}>{kelas}</Text>
-                    <Text style={styles.jumlah}>{jumlah} siswa</Text>
-                  </TouchableOpacity>
-                )
-              })}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
+      >
+        <View style={styles.grid}>
+          {classes.map((kelas) => {
+            const jumlah = profiles.filter((user) => user.kelas === kelas).length
+            const active = selectedClass === kelas
+            return (
+              <TouchableOpacity
+                key={kelas}
+                style={[styles.card, active && styles.cardActive]}
+                onPress={() => setSelectedClass(kelas)}
+              >
+                <Ionicons name="school" size={26} color={active ? AppTheme.colors.primary : AppTheme.colors.accent} />
+                <Text style={styles.kelasText}>{kelas}</Text>
+                <Text style={styles.jumlah}>{jumlah} siswa</Text>
+              </TouchableOpacity>
+            )
+          })}
+        </View>
+
+        {selectedClass && (
+          <View style={styles.listContainer}>
+            <SectionHeader
+              title={`Siswa ${selectedClass}`}
+              hint={`${siswa.length} siswa terdaftar. Edit data, lihat email masuk, ganti kata sandi, hapus siswa, atau atur ulang satu kelas penuh.`}
+              rightSlot={
+                <TouchableOpacity
+                  style={[styles.resetButton, processingAction === "reset" && styles.disabledButton]}
+                  onPress={resetClassUsers}
+                  disabled={processingAction !== null}
+                >
+                  <Ionicons name="refresh-outline" size={16} color="#fff" />
+                  <Text style={styles.resetButtonText}>
+                    {processingAction === "reset" ? "Mengatur ulang..." : "Atur Ulang Kelas"}
+                  </Text>
+                </TouchableOpacity>
+              }
+            />
+
+            <View style={styles.searchBox}>
+              <Ionicons name="search-outline" size={18} color="#6d7e90" />
+              <TextInput
+                placeholder="Cari nama siswa"
+                placeholderTextColor="#A89F9F"
+                value={searchQuery}
+                onChangeText={setSearchQuery}
+                style={styles.searchInput}
+                autoCapitalize="characters"
+                autoCorrect={false}
+              />
+              {searchQuery ? (
+                <TouchableOpacity onPress={() => setSearchQuery("")}>
+                  <Ionicons name="close-circle" size={18} color="#6d7e90" />
+                </TouchableOpacity>
+              ) : null}
             </View>
 
-            {selectedClass && (
-              <View style={styles.listContainer}>
-                <SectionHeader
-                  title={`Siswa ${selectedClass}`}
-                  hint={`${siswa.length} siswa terdaftar. Edit nama/kelas, hapus siswa, atau reset satu kelas penuh.`}
-                  rightSlot={
+            {siswa.length === 0 ? (
+              <Text style={styles.kosong}>
+                {searchQuery ? "Nama siswa tidak ditemukan" : "Belum ada akun"}
+              </Text>
+            ) : (
+              siswa.map((user) => (
+                <View key={user.id} style={styles.userItem}>
+                  <View style={styles.userInfo}>
+                    <Ionicons name="person-circle" size={24} color={AppTheme.colors.primary} />
+                    <View style={styles.userTextWrap}>
+                      <Text style={styles.nama}>{user.nama}</Text>
+                      <Text style={styles.kelasBadge}>{user.kelas}</Text>
+                      <Text style={styles.emailText}>{user.email || "Email tidak tersedia"}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.actionRow}>
                     <TouchableOpacity
-                      style={[styles.resetButton, processingAction === "reset" && styles.disabledButton]}
-                      onPress={resetClassUsers}
+                      style={styles.editButton}
+                      onPress={() => openEditModal(user)}
                       disabled={processingAction !== null}
                     >
-                      <Ionicons name="refresh-outline" size={16} color="#fff" />
-                      <Text style={styles.resetButtonText}>
-                        {processingAction === "reset" ? "Reset..." : "Reset Kelas"}
-                      </Text>
+                      <Ionicons name="create-outline" size={16} color="#16324f" />
+                      <Text style={styles.editButtonText}>Kelola</Text>
                     </TouchableOpacity>
-                  }
-                />
-
-                <View style={styles.searchBox}>
-                  <Ionicons name="search-outline" size={18} color="#6d7e90" />
-                  <TextInput
-                    placeholder="Cari nama siswa"
-                    placeholderTextColor="#A89F9F"
-                    value={searchQuery}
-                    onChangeText={setSearchQuery}
-                    style={styles.searchInput}
-                    autoCapitalize="characters"
-                    autoCorrect={false}
-                  />
-                  {searchQuery ? (
-                    <TouchableOpacity onPress={() => setSearchQuery("")}>
-                      <Ionicons name="close-circle" size={18} color="#6d7e90" />
+                    <TouchableOpacity
+                      style={styles.deleteButton}
+                      onPress={() => deleteUser(user)}
+                      disabled={processingAction !== null}
+                    >
+                      <Ionicons name="trash-outline" size={16} color="#fff" />
+                      <Text style={styles.deleteButtonText}>Hapus</Text>
                     </TouchableOpacity>
-                  ) : null}
+                  </View>
                 </View>
-
-                {siswa.length === 0 ? (
-                  <Text style={styles.kosong}>
-                    {searchQuery ? "Nama siswa tidak ditemukan" : "Belum ada akun"}
-                  </Text>
-                ) : (
-                  siswa.map((user) => (
-                    <View key={user.id} style={styles.userItem}>
-                      <View style={styles.userInfo}>
-                        <Ionicons name="person-circle" size={24} color="#6D3BFF" />
-                        <View style={styles.userTextWrap}>
-                          <Text style={styles.nama}>{user.nama}</Text>
-                          <Text style={styles.kelasBadge}>{user.kelas}</Text>
-                        </View>
-                      </View>
-                      <View style={styles.actionRow}>
-                        <TouchableOpacity
-                          style={styles.editButton}
-                          onPress={() => openEditModal(user)}
-                          disabled={processingAction !== null}
-                        >
-                          <Ionicons name="create-outline" size={16} color="#16324f" />
-                          <Text style={styles.editButtonText}>Edit</Text>
-                        </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.deleteButton}
-                          onPress={() => deleteUser(user)}
-                          disabled={processingAction !== null}
-                        >
-                          <Ionicons name="trash-outline" size={16} color="#fff" />
-                          <Text style={styles.deleteButtonText}>Hapus</Text>
-                        </TouchableOpacity>
-                      </View>
-                    </View>
-                  ))
-                )}
-              </View>
+              ))
             )}
-          </ScrollView>
+          </View>
+        )}
+      </ScrollView>
 
       <Modal transparent animationType="fade" visible={createModalVisible} onRequestClose={closeCreateModal}>
         <View style={styles.modalOverlay}>
@@ -639,6 +695,7 @@ export default function DaftarAkun() {
               onChangeText={(text) => setCreateNisn(normalizeStudentNisn(text))}
               style={styles.input}
               keyboardType="number-pad"
+              maxLength={10}
               autoCorrect={false}
               autoComplete="off"
             />
@@ -655,13 +712,25 @@ export default function DaftarAkun() {
             />
 
             <TextInput
-              placeholder="Password"
+              placeholder="Kata sandi"
               placeholderTextColor="#A89F9F"
               value={createPassword}
               onChangeText={setCreatePassword}
-              style={styles.input}
-              secureTextEntry
+              style={[styles.input, styles.passwordInput]}
+              secureTextEntry={!showCreatePassword}
+              autoCapitalize="none"
+              autoCorrect={false}
             />
+            <TouchableOpacity style={styles.passwordToggle} onPress={() => setShowCreatePassword((prev) => !prev)}>
+              <Ionicons
+                name={showCreatePassword ? "eye-outline" : "eye-off-outline"}
+                size={18}
+                color={AppTheme.colors.textMuted}
+              />
+              <Text style={styles.passwordToggleText}>
+                {showCreatePassword ? "Sembunyikan Kata Sandi" : "Lihat Kata Sandi"}
+              </Text>
+            </TouchableOpacity>
 
             <View style={styles.pickerBox}>
               <Picker selectedValue={createKelas} onValueChange={(value) => setCreateKelas(value)}>
@@ -689,13 +758,32 @@ export default function DaftarAkun() {
           <ModalCard>
             <View style={styles.modalHeader}>
               <View>
-                <Text style={styles.modalEyebrow}>Edit siswa</Text>
+                <Text style={styles.modalEyebrow}>Kelola akun siswa</Text>
                 <Text style={styles.modalTitle}>{editingUser?.nama || "-"}</Text>
               </View>
               <TouchableOpacity style={styles.modalClose} onPress={closeEditModal}>
                 <Ionicons name="close" size={18} color="#16324f" />
               </TouchableOpacity>
             </View>
+
+            <View style={styles.accountInfoCard}>
+              <Text style={styles.accountInfoLabel}>Email Masuk</Text>
+                      <Text style={styles.accountInfoValue}>{editingUser?.email || "Email tidak tersedia"}</Text>
+              <Text style={styles.accountInfoHint}>
+                Kata sandi lama tidak ditampilkan. Isi kata sandi baru hanya jika admin ingin menggantinya.
+              </Text>
+            </View>
+
+            <TextInput
+              placeholder="Email masuk"
+              placeholderTextColor="#A89F9F"
+              value={editEmail}
+              onChangeText={setEditEmail}
+              style={styles.input}
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="email-address"
+            />
 
             <TextInput
               placeholder="Nama siswa"
@@ -716,6 +804,51 @@ export default function DaftarAkun() {
               </Picker>
             </View>
 
+            <TextInput
+              placeholder="Kata sandi baru (opsional)"
+              placeholderTextColor="#A89F9F"
+              value={editPassword}
+              onChangeText={setEditPassword}
+              style={[styles.input, styles.passwordInput]}
+              secureTextEntry={!showEditPassword}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity style={styles.passwordToggle} onPress={() => setShowEditPassword((prev) => !prev)}>
+              <Ionicons
+                name={showEditPassword ? "eye-outline" : "eye-off-outline"}
+                size={18}
+                color={AppTheme.colors.textMuted}
+              />
+              <Text style={styles.passwordToggleText}>
+                {showEditPassword ? "Sembunyikan Kata Sandi Baru" : "Lihat Kata Sandi Baru"}
+              </Text>
+            </TouchableOpacity>
+
+            <TextInput
+              placeholder="Konfirmasi kata sandi baru"
+              placeholderTextColor="#A89F9F"
+              value={editPasswordConfirm}
+              onChangeText={setEditPasswordConfirm}
+              style={[styles.input, styles.passwordInput]}
+              secureTextEntry={!showEditPasswordConfirm}
+              autoCapitalize="none"
+              autoCorrect={false}
+            />
+            <TouchableOpacity
+              style={styles.passwordToggle}
+              onPress={() => setShowEditPasswordConfirm((prev) => !prev)}
+            >
+              <Ionicons
+                name={showEditPasswordConfirm ? "eye-outline" : "eye-off-outline"}
+                size={18}
+                color={AppTheme.colors.textMuted}
+              />
+              <Text style={styles.passwordToggleText}>
+                {showEditPasswordConfirm ? "Sembunyikan Konfirmasi" : "Lihat Konfirmasi"}
+              </Text>
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.saveButton, processingAction === "edit" && styles.disabledButton]}
               onPress={() => saveUserUpdate()}
@@ -728,7 +861,6 @@ export default function DaftarAkun() {
           </ModalCard>
         </View>
       </Modal>
-
     </ScreenShell>
   )
 }
@@ -813,6 +945,7 @@ const styles = StyleSheet.create({
   userTextWrap: { marginLeft: 10, flex: 1 },
   nama: { fontSize: 15, color: AppTheme.colors.text, fontWeight: "700" },
   kelasBadge: { color: AppTheme.colors.textMuted, marginTop: 4, fontSize: 12 },
+  emailText: { color: AppTheme.colors.primaryMuted, marginTop: 4, fontSize: 12, fontWeight: "600" },
   actionRow: {
     flexDirection: "row",
     justifyContent: "flex-end",
@@ -854,6 +987,31 @@ const styles = StyleSheet.create({
   },
   modalEyebrow: { color: AppTheme.colors.textMuted, fontSize: 12, marginBottom: 4 },
   modalTitle: { color: AppTheme.colors.text, fontSize: 20, fontWeight: "800" },
+  accountInfoCard: {
+    backgroundColor: AppTheme.colors.primarySoft,
+    borderRadius: AppTheme.radius.md,
+    padding: 14,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  accountInfoLabel: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    marginBottom: 6,
+    fontWeight: "700",
+  },
+  accountInfoValue: {
+    color: AppTheme.colors.primary,
+    fontSize: 14,
+    fontWeight: "800",
+  },
+  accountInfoHint: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    lineHeight: 18,
+    marginTop: 6,
+  },
   modalClose: {
     width: 36,
     height: 36,
@@ -872,6 +1030,21 @@ const styles = StyleSheet.create({
     color: AppTheme.colors.text,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
+  },
+  passwordInput: {
+    marginBottom: 8,
+  },
+  passwordToggle: {
+    flexDirection: "row",
+    alignItems: "center",
+    alignSelf: "flex-start",
+    gap: 6,
+    marginBottom: 14,
+  },
+  passwordToggleText: {
+    color: AppTheme.colors.textMuted,
+    fontWeight: "700",
+    fontSize: 12,
   },
   pickerBox: {
     backgroundColor: AppTheme.colors.surface,

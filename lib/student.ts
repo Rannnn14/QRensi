@@ -7,6 +7,9 @@ export const normalizeStudentName = (value: string) =>
 export const normalizeStudentNisn = (value: string) =>
   String(value ?? "").replace(/\D+/g, "").trim()
 
+export const isValidStudentNisn = (value: string) =>
+  normalizeStudentNisn(value).length === 10
+
 export const getComparableStudentName = (value: string) =>
   normalizeStudentName(value).replace(/\s+/g, "")
 

@@ -5,6 +5,11 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
+    "splash": {
+      "image": "./assets/images/logo_qrensii.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#FFFFFF"
+    },
     "scheme": "qrensi",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
@@ -30,12 +35,13 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "image": "./assets/images/logo_qrensii.png",
+          "imageWidth": 260,
           "resizeMode": "contain",
-          "backgroundColor": "#ffffff",
+          "backgroundColor": "#FFFFFF",
           "dark": {
-            "backgroundColor": "#000000"
+            "image": "./assets/images/logo_qrensii.png",
+            "backgroundColor": "#16324F"
           }
         }
       ],

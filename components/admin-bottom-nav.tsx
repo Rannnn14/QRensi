@@ -7,9 +7,9 @@ import { AppTheme } from "../constants/theme"
 const items = [
   { key: "daftar_akun", label: "Akun", icon: "people-outline", route: "/daftar_akun" },
   { key: "daftar_hadir", label: "Hadir", icon: "clipboard-outline", route: "/daftar_hadir" },
-  { key: "admin", label: "Home", icon: "home", route: "/admin" },
+  { key: "admin", label: "Beranda", icon: "home", route: "/admin" },
   { key: "pengajuan", label: "Ajuan", icon: "document-text-outline", route: "/pengajuan" },
-  { key: "scanner", label: "Scan", icon: "scan-outline", route: "/scanner" },
+  { key: "scanner", label: "Pindai", icon: "scan-outline", route: "/scanner" },
 ]
 
 type Props = {

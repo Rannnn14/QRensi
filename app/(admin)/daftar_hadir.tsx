@@ -16,6 +16,7 @@ import { Ionicons } from "@expo/vector-icons"
 import { Picker } from "@react-native-picker/picker"
 import { SafeAreaView } from "react-native-safe-area-context"
 import { AdminBottomNav } from "../../components/admin-bottom-nav"
+import { PageHeader } from "../../components/ui/page-header"
 import { useFeatureBack } from "../../hooks/use-feature-back"
 import { getLocalDateValue, getLocalMonthValue, shiftMonthValue } from "../../lib/date"
 import { saveCsvFile } from "../../lib/device-files"
@@ -139,10 +140,10 @@ export default function DaftarHadir() {
 
   const buildDateStatusMap = (
     classProfiles: any[],
-    attendanceRows: Array<{ tanggal?: string | null; status?: string | null; user_id?: string | null }>
+    attendanceRows: { tanggal?: string | null; status?: string | null; user_id?: string | null }[]
   ) => {
     const totalStudents = classProfiles.length
-    const grouped = new Map<string, Array<{ status?: string | null; user_id?: string | null }>>()
+    const grouped = new Map<string, { status?: string | null; user_id?: string | null }[]>()
 
     attendanceRows.forEach((item) => {
       if (!item?.tanggal) return
@@ -502,15 +503,7 @@ export default function DaftarHadir() {
           showsVerticalScrollIndicator={false}
         >
           <View style={styles.shell}>
-        <View style={styles.header}>
-          <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-            <Ionicons name="arrow-back" size={18} color="#6D3BFF" />
-          </TouchableOpacity>
-          <View style={styles.headerTextWrap}>
-            <Text style={styles.eyebrow}>Kontrol kelas</Text>
-            <Text style={styles.headerTitle}>Daftar Hadir</Text>
-          </View>
-        </View>
+        <PageHeader eyebrow="Kontrol kelas" title="Daftar Hadir" onBackPress={handleBack} />
 
         <View style={styles.infoCard}>
           <View style={styles.infoTopRow}>
@@ -534,7 +527,7 @@ export default function DaftarHadir() {
                 onPress={()=>setSelectedKelas(item)}
               >
                 <View style={styles.cardIconWrap}>
-                  <Ionicons name="people-outline" size={22} color="#16324f" />
+                  <Ionicons name="people-outline" size={18} color="#16324f" />
                 </View>
                 <Text style={styles.cardText}>{item}</Text>
                 <Text style={styles.cardCount}>{jumlahSiswa} siswa</Text>
@@ -651,15 +644,7 @@ export default function DaftarHadir() {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.shell}>
-      <View style={styles.header}>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Ionicons name="arrow-back" size={18} color="#6D3BFF" />
-        </TouchableOpacity>
-        <View style={styles.headerTextWrap}>
-          <Text style={styles.eyebrow}>Daftar siswa</Text>
-          <Text style={styles.headerTitle}>Kelas {selectedKelas}</Text>
-        </View>
-      </View>
+      <PageHeader eyebrow="Daftar siswa" title={`Kelas ${selectedKelas}`} onBackPress={handleBack} />
 
       <View style={styles.heroCard}>
         <View style={styles.heroTopRow}>
@@ -897,6 +882,9 @@ const styles = StyleSheet.create({
     borderRadius:AppTheme.radius.xl,
     padding:18,
     marginBottom:18,
+    borderWidth:1,
+    borderColor:AppTheme.colors.primaryMuted,
+    ...AppTheme.shadow.sm,
   },
   infoHeaderCopy:{
     flex:1,
@@ -999,38 +987,40 @@ const styles = StyleSheet.create({
   grid:{
     flexDirection:"row",
     flexWrap:"wrap",
-    justifyContent:"space-between"
+    justifyContent:"space-between",
+    rowGap:12,
   },
   card:{
-    flexBasis:"48%",
+    flexBasis:"31.5%",
     backgroundColor:AppTheme.colors.surface,
-    marginBottom:15,
-    paddingVertical:26,
-    paddingHorizontal:16,
-    borderRadius:AppTheme.radius.xl,
+    paddingVertical:13,
+    paddingHorizontal:9,
+    borderRadius:18,
     alignItems:"center",
     borderWidth:1,
-    borderColor:AppTheme.colors.border,
-    gap:8,
+    borderColor:AppTheme.colors.borderStrong,
+    gap:6,
+    minHeight:108,
+    ...AppTheme.shadow.sm,
   },
   cardIconWrap:{
-    width:52,
-    height:52,
-    borderRadius:AppTheme.radius.md,
-    backgroundColor:AppTheme.colors.accentSoft,
+    width:38,
+    height:38,
+    borderRadius:14,
+    backgroundColor:AppTheme.colors.primarySoft,
     alignItems:"center",
     justifyContent:"center",
   },
   cardText:{
     color:AppTheme.colors.text,
-    fontSize:19,
-    fontWeight:"bold",
+    fontSize:14,
+    fontWeight:"900",
     textAlign:"center",
+    lineHeight:18,
   },
   cardCount:{
-    marginTop:8,
     color:AppTheme.colors.textMuted,
-    fontSize:12,
+    fontSize:11,
     fontWeight:"700",
   },
   heroCard:{
@@ -1039,6 +1029,9 @@ const styles = StyleSheet.create({
     padding:20,
     marginBottom:14,
     gap:8,
+    borderWidth:1,
+    borderColor:AppTheme.colors.primaryMuted,
+    ...AppTheme.shadow.sm,
   },
   heroTopRow:{
     flexDirection:"row",
@@ -1078,9 +1071,11 @@ const styles = StyleSheet.create({
   summaryCard:{
     alignSelf:"flex-start",
     backgroundColor:"rgba(255, 255, 255, 0.12)",
-    borderRadius:AppTheme.radius.sm,
+    borderRadius:16,
     paddingHorizontal:12,
     paddingVertical:10,
+    borderWidth:1,
+    borderColor:"rgba(255,255,255,0.14)",
   },
   summaryLabel:{
     color:AppTheme.colors.primarySoft,
@@ -1097,10 +1092,12 @@ const styles = StyleSheet.create({
     flexDirection:"row",
     alignItems:"center",
     backgroundColor:AppTheme.colors.surface,
-    borderRadius:AppTheme.radius.md,
+    borderRadius:18,
     paddingHorizontal:14,
     paddingVertical:4,
     gap:8,
+    borderWidth:1,
+    borderColor:AppTheme.colors.border,
   },
   searchInput:{
     flex:1,
@@ -1113,11 +1110,12 @@ const styles = StyleSheet.create({
   },
   row:{
     backgroundColor:AppTheme.colors.surface,
-    padding:16,
-    borderRadius:AppTheme.radius.md,
+    padding:14,
+    borderRadius:18,
     marginBottom:12,
     borderWidth:1,
-    borderColor:AppTheme.colors.border
+    borderColor:AppTheme.colors.border,
+    ...AppTheme.shadow.sm,
   },
   nama:{
     fontSize:18,
@@ -1142,9 +1140,11 @@ const styles = StyleSheet.create({
     flex:1,
     paddingVertical:10,
     marginHorizontal:3,
-    borderRadius:AppTheme.radius.sm,
+    borderRadius:14,
     backgroundColor:AppTheme.colors.primarySoft,
-    alignItems:"center"
+    alignItems:"center",
+    borderWidth:1,
+    borderColor:"rgba(22, 50, 79, 0.08)",
   },
   hadir:{
     backgroundColor:AppTheme.colors.success
@@ -1180,9 +1180,11 @@ const styles = StyleSheet.create({
     alignItems:"center",
     justifyContent:"center",
     backgroundColor:AppTheme.colors.primarySoft,
-    borderRadius:AppTheme.radius.md,
+    borderRadius:18,
     paddingVertical:13,
     gap:8,
+    borderWidth:1,
+    borderColor:AppTheme.colors.borderStrong,
   },
   secondaryActionText:{
     color:AppTheme.colors.primary,
