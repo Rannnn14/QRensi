@@ -335,14 +335,10 @@ export default function Login() {
 
           <View style={styles.logoWrapper}>
             <Image
-              source={require("../../assets/images/logo_qrensii.png")}
+              source={require("../../assets/images/Logo2.png")}
               style={styles.logoPrimary}
               resizeMode="contain"
             />
-            <Text style={styles.appTitle}>Aplikasi QRensi</Text>
-            <Text style={styles.appSubtitle}>
-              Sistem absensi digital yang cepat, aman, dan mudah digunakan.
-            </Text>
           </View>
 
           <View style={styles.waveDecorator} />
@@ -354,23 +350,8 @@ export default function Login() {
             <Text style={styles.welcomeText}>Masuk ke panel QRensi</Text>
           </View>
           <Text style={styles.welcomeCaption}>
-            Gunakan akun yang sudah terdaftar untuk mengakses dasbor admin atau siswa.
+            Gunakan akun yang sudah terdaftar untuk mengakses dashboard admin atau siswa.
           </Text>
-
-          <View style={styles.trustRow}>
-            <View style={styles.trustPill}>
-              <Ionicons name="shield-checkmark-outline" size={14} color={AppTheme.colors.primary} />
-              <Text style={styles.trustPillText}>Aman</Text>
-            </View>
-            <View style={styles.trustPill}>
-              <Ionicons name="qr-code-outline" size={14} color={AppTheme.colors.primary} />
-              <Text style={styles.trustPillText}>QR Absensi</Text>
-            </View>
-            <View style={styles.trustPill}>
-              <Ionicons name="people-outline" size={14} color={AppTheme.colors.primary} />
-              <Text style={styles.trustPillText}>Admin & Siswa</Text>
-            </View>
-          </View>
 
           <AppInput
             placeholder="Email"
@@ -512,19 +493,20 @@ const styles = StyleSheet.create({
     backgroundColor: AppTheme.colors.background,
   },
   headerContainer: {
-    minHeight: 340,
+    minHeight: 360,
     backgroundColor: AppTheme.colors.primary,
-    justifyContent: "center",
+    justifyContent: "flex-start",
     position: "relative",
     overflow: "hidden",
     paddingHorizontal: 20,
-    paddingTop: 36,
+    paddingTop: 0,
     paddingBottom: 72,
   },
   logoWrapper: {
     alignItems: "center",
     zIndex: 2,
     gap: 10,
+    marginTop: -24,
   },
   heroGlowLarge: {
     position: "absolute",
@@ -545,37 +527,23 @@ const styles = StyleSheet.create({
     backgroundColor: "rgba(255,255,255,0.04)",
   },
   logoPrimary: {
-    width: 220,
-    height: 84,
-  },
-  appTitle: {
-    color: AppTheme.colors.white,
-    fontSize: 24,
-    fontWeight: "800",
-    letterSpacing: 0.3,
-    textAlign: "center",
-  },
-  appSubtitle: {
-    color: "rgba(255,255,255,0.82)",
-    fontSize: 13,
-    lineHeight: 18,
-    textAlign: "center",
-    maxWidth: 260,
+    width: 450,
+    height: 300,
   },
   waveDecorator: {
     position: "absolute",
-    bottom: -58,
+    bottom: -70,
     left: 0,
     right: 0,
-    height: 116,
+    height: 170,
     backgroundColor: AppTheme.colors.background,
-    borderTopLeftRadius: 120,
-    borderTopRightRadius: 120,
+    borderTopLeftRadius: 60,
+    borderTopRightRadius: 60,
     transform: [{ scaleX: 1.18 }],
   },
   formContainer: {
     marginHorizontal: 20,
-    marginTop: -32,
+    marginTop: -64,
     gap: AppTheme.spacing.md,
     borderRadius: 26,
     padding: 20,
@@ -596,28 +564,6 @@ const styles = StyleSheet.create({
     ...AppTheme.typography.body,
     color: AppTheme.colors.textMuted,
     marginBottom: 4,
-  },
-  trustRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 8,
-    marginBottom: AppTheme.spacing.sm,
-  },
-  trustPill: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
-    borderRadius: AppTheme.radius.pill,
-    backgroundColor: AppTheme.colors.surfaceMuted,
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-  },
-  trustPillText: {
-    color: AppTheme.colors.primary,
-    fontSize: 12,
-    fontWeight: "700",
   },
   errorText: {
     color: AppTheme.colors.danger,

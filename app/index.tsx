@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "react"
 import { router } from "expo-router"
-import { ActivityIndicator, Image, StyleSheet, Text, View } from "react-native"
+import { StyleSheet, View } from "react-native"
 import { AppTheme } from "../constants/theme"
 import { ensureProfileForUser } from "../lib/auth"
 import { supabase } from "../lib/supabase"
@@ -30,10 +30,13 @@ export default function Index() {
         const { data: userData, error: userError } = await supabase.auth.getUser()
         const safeUser = userData.user || sessionUser
 
-        if (userError || !safeUser) {
-          await supabase.auth.signOut()
+        if (!safeUser) {
           router.replace("/login")
           return
+        }
+
+        if (userError) {
+          console.log("Validasi sesi memakai data lokal:", userError.message)
         }
 
         const profile = await ensureProfileForUser(safeUser)
@@ -69,35 +72,13 @@ export default function Index() {
   }, [])
 
   return (
-    <View style={styles.screen}>
-      <View style={styles.brandBadge}>
-        <Image source={require("../assets/images/logo_qrensii.png")} style={styles.logo} resizeMode="contain" />
-        <Text style={styles.brandTitle}>Menyiapkan akses</Text>
-      </View>
-      <ActivityIndicator size="large" color={AppTheme.colors.primary} />
-    </View>
+    <View style={styles.screen} />
   )
 }
 
 const styles = StyleSheet.create({
   screen: {
     flex: 1,
-    alignItems: "center",
-    justifyContent: "center",
-    paddingHorizontal: AppTheme.spacing.lg,
     backgroundColor: AppTheme.colors.background,
-    gap: AppTheme.spacing.xl,
-  },
-  brandBadge: {
-    alignItems: "center",
-    gap: AppTheme.spacing.sm,
-  },
-  logo: {
-    width: 116,
-    height: 44,
-  },
-  brandTitle: {
-    ...AppTheme.typography.titleSm,
-    textAlign: "center",
   },
 })

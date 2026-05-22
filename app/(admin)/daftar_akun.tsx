@@ -81,6 +81,12 @@ export default function DaftarAkun() {
         return true
       }
 
+      if (selectedClass) {
+        setSelectedClass(null)
+        setSearchQuery("")
+        return true
+      }
+
       return false
     },
   })
@@ -543,8 +549,8 @@ export default function DaftarAkun() {
   return (
     <ScreenShell viewProps={{ style: styles.container }} footer={<AdminBottomNav activeKey="daftar_akun" />}>
       <PageHeader
-        eyebrow="Direktori akun"
-        title="Daftar Akun Siswa"
+        eyebrow={selectedClass ? "Daftar siswa" : "Direktori akun"}
+        title={selectedClass ? `Kelas ${selectedClass}` : "Daftar Akun Siswa"}
         onBackPress={handleBack}
         rightSlot={
           <TouchableOpacity
@@ -560,34 +566,53 @@ export default function DaftarAkun() {
         }
       />
 
-      <InfoCard
-        title="Pilih kelas untuk melihat akun aktif"
-        description="Admin dapat melihat email masuk siswa, mengubah data siswa, dan mengganti kata sandi baru tanpa menampilkan kata sandi lama."
-      />
+      {!selectedClass ? (
+        <InfoCard
+          title="Pilih kelas untuk melihat akun aktif"
+          description="Admin dapat melihat email masuk siswa, mengubah data siswa, dan mengganti kata sandi baru tanpa menampilkan kata sandi lama."
+        />
+      ) : null}
 
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        <View style={styles.grid}>
-          {classes.map((kelas) => {
-            const jumlah = profiles.filter((user) => user.kelas === kelas).length
-            const active = selectedClass === kelas
-            return (
-              <TouchableOpacity
-                key={kelas}
-                style={[styles.card, active && styles.cardActive]}
-                onPress={() => setSelectedClass(kelas)}
-              >
-                <Ionicons name="school" size={26} color={active ? AppTheme.colors.primary : AppTheme.colors.accent} />
-                <Text style={styles.kelasText}>{kelas}</Text>
-                <Text style={styles.jumlah}>{jumlah} siswa</Text>
-              </TouchableOpacity>
-            )
-          })}
-        </View>
-
-        {selectedClass && (
+        {!selectedClass ? (
+          <View style={styles.grid}>
+            {classes.map((kelas) => {
+              const jumlah = profiles.filter((user) => user.kelas === kelas).length
+              const [grade, group] = kelas.split(" ")
+              return (
+                <TouchableOpacity
+                  key={kelas}
+                  style={styles.card}
+                  onPress={() => setSelectedClass(kelas)}
+                >
+                  <View style={styles.cardAccentShape} />
+                  <View style={styles.cardTopRow}>
+                    <View style={styles.cardIconWrap}>
+                      <Ionicons name="school-outline" size={19} color={AppTheme.colors.primary} />
+                    </View>
+                    <View style={styles.cardArrowWrap}>
+                      <Ionicons name="chevron-forward" size={15} color={AppTheme.colors.primary} />
+                    </View>
+                  </View>
+                  <View style={styles.cardClassWrap}>
+                    <Text style={styles.cardEyebrow}>Kelas</Text>
+                    <View style={styles.cardClassRow}>
+                      <Text style={styles.cardGrade}>{grade}</Text>
+                      <Text style={styles.cardGroup}>{group}</Text>
+                    </View>
+                  </View>
+                  <View style={styles.cardCountPill}>
+                    <Ionicons name="person-outline" size={13} color={AppTheme.colors.textMuted} />
+                    <Text style={styles.jumlah}>{jumlah} siswa</Text>
+                  </View>
+                </TouchableOpacity>
+              )
+            })}
+          </View>
+        ) : (
           <View style={styles.listContainer}>
             <SectionHeader
               title={`Siswa ${selectedClass}`}
@@ -880,20 +905,117 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 6,
   },
-  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between" },
+  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 14 },
   card: {
     width: "48%",
     backgroundColor: AppTheme.colors.surface,
-    padding: 18,
+    padding: 14,
     borderRadius: AppTheme.radius.lg,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    minHeight: 152,
+    overflow: "hidden",
+    position: "relative",
+    justifyContent: "space-between",
+    gap: 12,
+    ...AppTheme.shadow.sm,
+  },
+  cardActive: {
+    backgroundColor: AppTheme.colors.surface,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.primary,
+  },
+  cardAccentShape: {
+    position: "absolute",
+    right: -26,
+    top: -24,
+    width: 92,
+    height: 76,
+    borderRadius: 22,
+    backgroundColor: AppTheme.colors.accentSoft,
+    transform: [{ rotate: "-18deg" }],
+  },
+  cardAccentShapeActive: {
+    backgroundColor: AppTheme.colors.primarySoft,
+  },
+  cardTopRow: {
+    flexDirection: "row",
     alignItems: "center",
-    marginBottom: 15,
+    justifyContent: "space-between",
+    zIndex: 1,
+  },
+  cardIconWrap: {
+    width: 42,
+    height: 42,
+    borderRadius: 16,
+    backgroundColor: AppTheme.colors.primarySoft,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  cardIconWrapActive: {
+    borderWidth: 1,
+    borderColor: AppTheme.colors.primary,
+  },
+  cardArrowWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
   },
-  cardActive: { backgroundColor: AppTheme.colors.primarySoft, borderWidth: 1, borderColor: AppTheme.colors.primary },
-  kelasText: { fontSize: 15, fontWeight: "bold", marginTop: 8, color: AppTheme.colors.text },
-  jumlah: { fontSize: 12, color: AppTheme.colors.textMuted, marginTop: 3 },
+  cardArrowWrapActive: {
+    borderColor: AppTheme.colors.primary,
+  },
+  cardClassWrap: {
+    zIndex: 1,
+  },
+  cardEyebrow: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 10,
+    fontWeight: "800",
+    textTransform: "uppercase",
+    letterSpacing: 0.4,
+    marginBottom: 2,
+  },
+  cardClassRow: {
+    flexDirection: "row",
+    alignItems: "baseline",
+    gap: 6,
+    flexWrap: "wrap",
+  },
+  cardGrade: {
+    color: AppTheme.colors.text,
+    fontSize: 31,
+    fontWeight: "900",
+    lineHeight: 36,
+  },
+  cardGroup: {
+    color: AppTheme.colors.primary,
+    fontSize: 16,
+    fontWeight: "900",
+    lineHeight: 22,
+  },
+  cardCountPill: {
+    alignSelf: "flex-start",
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 5,
+    backgroundColor: AppTheme.colors.surfaceMuted,
+    borderRadius: AppTheme.radius.pill,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    zIndex: 1,
+  },
+  cardCountPillActive: {
+    backgroundColor: AppTheme.colors.primarySoft,
+    borderColor: AppTheme.colors.primarySoft,
+  },
+  jumlah: { fontSize: 11, color: AppTheme.colors.textMuted, fontWeight: "800" },
   listContainer: {
     marginTop: 20,
     backgroundColor: AppTheme.colors.surface,

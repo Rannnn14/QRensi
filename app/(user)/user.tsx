@@ -401,20 +401,27 @@ export default function User() {
         </View>
 
         <View style={styles.profileCard}>
+          <View style={styles.profileAccentRail} />
+          <View style={styles.profileCornerShape} />
           <View style={styles.profileIconWrap}>
-            <Ionicons name="person" size={22} color={AppTheme.colors.white} />
+            <Ionicons name="person" size={34} color={AppTheme.colors.white} />
           </View>
           <View style={styles.profileCopy}>
             <Text style={styles.mutedLabel}>Profil Siswa</Text>
             <Text style={styles.profileName} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.82}>
               {profile.name || "-"}
             </Text>
-            <View style={styles.profileMetaRow}>
-              <View style={styles.profileBadge}>
-                <Ionicons name="school-outline" size={13} color={AppTheme.colors.primary} />
-                <Text style={styles.profileBadgeText}>{profile.kelas || "-"}</Text>
+            <View style={styles.profileInfoRow}>
+              <View style={styles.profileClassPill}>
+                <Ionicons name="school-outline" size={14} color={AppTheme.colors.primary} />
+                <Text style={styles.profileClass} numberOfLines={1}>
+                  {profile.kelas || "-"}
+                </Text>
               </View>
-              <Text style={styles.profileMeta}>Akun siswa aktif</Text>
+              <View style={styles.profileStatusPill}>
+                <View style={styles.profileStatusDot} />
+                <Text style={styles.profileStatusText}>Aktif</Text>
+              </View>
             </View>
           </View>
         </View>
@@ -475,11 +482,19 @@ export default function User() {
                 style={styles.quickCard}
                 onPress={item.action}
               >
-                <View style={styles.quickIconWrap}>
-                  <Ionicons name={item.icon} size={18} color="#22405f" />
+                <View style={styles.quickAccentShape} />
+                <View style={styles.quickTopRow}>
+                  <View style={styles.quickIconWrap}>
+                    <Ionicons name={item.icon} size={19} color={AppTheme.colors.primary} />
+                  </View>
+                  <View style={styles.quickArrowWrap}>
+                    <Ionicons name="chevron-forward" size={15} color={AppTheme.colors.primary} />
+                  </View>
                 </View>
-                <Text style={styles.quickTitle}>{item.title}</Text>
-                <Text style={styles.quickDescription}>{item.description}</Text>
+                <View style={styles.quickCopy}>
+                  <Text style={styles.quickTitle}>{item.title}</Text>
+                  <Text style={styles.quickDescription}>{item.description}</Text>
+                </View>
               </TouchableOpacity>
             ))}
           </View>
@@ -591,26 +606,55 @@ const styles = StyleSheet.create({
   },
   profileCard: {
     backgroundColor: AppTheme.colors.surface,
-    borderRadius: AppTheme.radius.xl,
-    padding: 14,
+    borderRadius: AppTheme.radius.lg,
+    paddingHorizontal: 16,
+    paddingVertical: 18,
     flexDirection: "row",
     alignItems: "center",
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
-    gap: 12,
+    gap: 16,
+    minHeight: 112,
+    overflow: "hidden",
+    position: "relative",
     ...AppTheme.shadow.sm,
   },
-  profileIconWrap: {
-    width: 52,
-    height: 52,
+  profileAccentRail: {
+    position: "absolute",
+    left: 0,
+    top: 16,
+    bottom: 16,
+    width: 5,
+    borderTopRightRadius: AppTheme.radius.pill,
+    borderBottomRightRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.colors.accent,
+  },
+  profileCornerShape: {
+    position: "absolute",
+    right: -34,
+    top: -28,
+    width: 128,
+    height: 74,
     borderRadius: 18,
+    backgroundColor: AppTheme.colors.accentSoft,
+    transform: [{ rotate: "-18deg" }],
+  },
+  profileIconWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: 36,
     backgroundColor: AppTheme.colors.primary,
     alignItems: "center",
     justifyContent: "center",
+    borderWidth: 4,
+    borderColor: AppTheme.colors.primarySoft,
+    zIndex: 1,
   },
   profileCopy: {
     flex: 1,
     minWidth: 0,
+    justifyContent: "center",
+    zIndex: 1,
   },
   noticeCard: {
     backgroundColor: AppTheme.colors.surface,
@@ -674,43 +718,63 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   mutedLabel: {
-    fontSize: 11,
+    fontSize: 10,
     color: AppTheme.colors.primary,
     fontWeight: "800",
     textTransform: "uppercase",
-    letterSpacing: 0.3,
+    letterSpacing: 0.4,
     marginBottom: 4,
   },
   profileName: {
-    fontSize: 19,
+    fontSize: 25,
     fontWeight: "900",
     color: AppTheme.colors.text,
+    lineHeight: 30,
   },
-  profileMetaRow: {
-    marginTop: 8,
+  profileInfoRow: {
     flexDirection: "row",
     alignItems: "center",
     gap: 8,
     flexWrap: "wrap",
+    marginTop: 8,
   },
-  profileBadge: {
+  profileClassPill: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
     backgroundColor: AppTheme.colors.primarySoft,
     borderRadius: AppTheme.radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
+    maxWidth: "62%",
   },
-  profileBadgeText: {
+  profileClass: {
     color: AppTheme.colors.primary,
+    fontSize: 13,
+    fontWeight: "800",
+    lineHeight: 16,
+  },
+  profileStatusPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: AppTheme.colors.surfaceMuted,
+    borderRadius: AppTheme.radius.pill,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  profileStatusDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: AppTheme.colors.success,
+  },
+  profileStatusText: {
+    color: AppTheme.colors.textMuted,
     fontSize: 12,
     fontWeight: "800",
-  },
-  profileMeta: {
-    color: AppTheme.colors.textSoft,
-    fontSize: 11,
-    fontWeight: "700",
   },
   statusBadge: {
     backgroundColor: AppTheme.colors.primarySoft,
@@ -776,7 +840,7 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
-    rowGap: 12,
+    rowGap: 14,
     columnGap: 10,
   },
   quickCard: {
@@ -784,31 +848,65 @@ const styles = StyleSheet.create({
     maxWidth: "48.5%",
     flexGrow: 1,
     backgroundColor: AppTheme.colors.surface,
-    borderRadius: AppTheme.radius.xl,
-    padding: 16,
-    minHeight: 132,
+    borderRadius: AppTheme.radius.lg,
+    padding: 14,
+    minHeight: 154,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
+    overflow: "hidden",
+    position: "relative",
+    justifyContent: "space-between",
+    gap: 12,
     ...AppTheme.shadow.sm,
   },
+  quickAccentShape: {
+    position: "absolute",
+    right: -26,
+    top: -24,
+    width: 92,
+    height: 76,
+    borderRadius: 22,
+    backgroundColor: AppTheme.colors.accentSoft,
+    transform: [{ rotate: "-18deg" }],
+  },
+  quickTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    zIndex: 1,
+  },
   quickIconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: AppTheme.radius.sm,
+    width: 42,
+    height: 42,
+    borderRadius: 16,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: AppTheme.colors.primarySoft,
-    marginBottom: 12,
+  },
+  quickArrowWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  quickCopy: {
+    zIndex: 1,
   },
   quickTitle: {
     color: AppTheme.colors.text,
-    fontSize: 15,
-    fontWeight: "800",
+    fontSize: 16,
+    fontWeight: "900",
+    lineHeight: 21,
   },
   quickDescription: {
     color: AppTheme.colors.textMuted,
-    lineHeight: 17,
+    lineHeight: 18,
     fontSize: 12,
-    marginTop: 6,
+    marginTop: 7,
+    fontWeight: "600",
   },
 })

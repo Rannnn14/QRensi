@@ -167,7 +167,7 @@ export default function Admin() {
 
         <View style={styles.heroCard}>
           <View style={styles.heroBadge}>
-            <Text style={styles.heroBadgeText}>Dasbor utama</Text>
+            <Text style={styles.heroBadgeText}>Dashboard Utama</Text>
           </View>
           <Text style={styles.heroTitle}>
             Panel admin yang ringkas untuk mengelola siswa dan pengajuan dengan lebih rapi.
@@ -214,11 +214,19 @@ export default function Admin() {
         <View style={styles.menuGrid}>
           {adminActions.map((item) => (
             <TouchableOpacity key={item.title} style={styles.menuItem} onPress={item.action}>
-              <View style={styles.iconBox}>
-                <Ionicons name={item.icon} size={20} color="#22405f" />
+              <View style={styles.menuAccentShape} />
+              <View style={styles.menuTopRow}>
+                <View style={styles.iconBox}>
+                  <Ionicons name={item.icon} size={19} color={AppTheme.colors.primary} />
+                </View>
+                <View style={styles.menuArrowWrap}>
+                  <Ionicons name="chevron-forward" size={15} color={AppTheme.colors.primary} />
+                </View>
               </View>
-              <Text style={styles.menuTitle}>{item.title}</Text>
-              <Text style={styles.menuSubtitle}>{item.description}</Text>
+              <View style={styles.menuCopy}>
+                <Text style={styles.menuTitle}>{item.title}</Text>
+                <Text style={styles.menuSubtitle}>{item.description}</Text>
+              </View>
             </TouchableOpacity>
           ))}
         </View>
@@ -502,37 +510,72 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     flexWrap: "wrap",
     justifyContent: "space-between",
-    gap: 10,
+    rowGap: 14,
+    columnGap: 10,
   },
   menuItem: {
     width: "48.5%",
-    borderRadius: AppTheme.radius.xl,
-    padding: 16,
+    borderRadius: AppTheme.radius.lg,
+    padding: 14,
     backgroundColor: AppTheme.colors.surface,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
-    minHeight: 140,
+    minHeight: 154,
+    overflow: "hidden",
+    position: "relative",
+    justifyContent: "space-between",
+    gap: 12,
     ...AppTheme.shadow.sm,
   },
+  menuAccentShape: {
+    position: "absolute",
+    right: -26,
+    top: -24,
+    width: 92,
+    height: 76,
+    borderRadius: 22,
+    backgroundColor: AppTheme.colors.accentSoft,
+    transform: [{ rotate: "-18deg" }],
+  },
+  menuTopRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+    zIndex: 1,
+  },
   iconBox: {
-    width: 40,
-    height: 40,
-    borderRadius: AppTheme.radius.sm,
+    width: 42,
+    height: 42,
+    borderRadius: 16,
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: AppTheme.colors.primarySoft,
-    marginBottom: 14,
+  },
+  menuArrowWrap: {
+    width: 30,
+    height: 30,
+    borderRadius: AppTheme.radius.pill,
+    backgroundColor: AppTheme.colors.surface,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: AppTheme.colors.border,
+  },
+  menuCopy: {
+    zIndex: 1,
   },
   menuTitle: {
     fontSize: 16,
-    fontWeight: "800",
+    fontWeight: "900",
     color: AppTheme.colors.text,
+    lineHeight: 21,
   },
   menuSubtitle: {
     color: AppTheme.colors.textMuted,
     fontSize: 12,
     lineHeight: 18,
-    marginTop: 8,
+    marginTop: 7,
+    fontWeight: "600",
   },
   scanCard: {
     marginTop: 16,

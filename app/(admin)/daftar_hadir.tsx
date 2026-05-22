@@ -519,6 +519,7 @@ export default function DaftarHadir() {
         <View style={styles.grid}>
           {kelasList.map(item => {
             const jumlahSiswa = profiles.filter(profile => profile.kelas === item).length
+            const [grade, group] = item.split(" ")
 
             return (
               <TouchableOpacity
@@ -526,11 +527,26 @@ export default function DaftarHadir() {
                 style={styles.card}
                 onPress={()=>setSelectedKelas(item)}
               >
-                <View style={styles.cardIconWrap}>
-                  <Ionicons name="people-outline" size={18} color="#16324f" />
+                <View style={styles.cardAccentShape} />
+                <View style={styles.cardTopRow}>
+                  <View style={styles.cardIconWrap}>
+                    <Ionicons name="people-outline" size={19} color={AppTheme.colors.primary} />
+                  </View>
+                  <View style={styles.cardArrowWrap}>
+                    <Ionicons name="chevron-forward" size={15} color={AppTheme.colors.primary} />
+                  </View>
                 </View>
-                <Text style={styles.cardText}>{item}</Text>
-                <Text style={styles.cardCount}>{jumlahSiswa} siswa</Text>
+                <View style={styles.cardClassWrap}>
+                  <Text style={styles.cardEyebrow}>Kelas</Text>
+                  <View style={styles.cardClassRow}>
+                    <Text style={styles.cardGrade}>{grade}</Text>
+                    <Text style={styles.cardGroup}>{group}</Text>
+                  </View>
+                </View>
+                <View style={styles.cardCountPill}>
+                  <Ionicons name="person-outline" size={13} color={AppTheme.colors.textMuted} />
+                  <Text style={styles.cardCount}>{jumlahSiswa} siswa</Text>
+                </View>
               </TouchableOpacity>
             )
           })}
@@ -988,40 +1004,101 @@ const styles = StyleSheet.create({
     flexDirection:"row",
     flexWrap:"wrap",
     justifyContent:"space-between",
-    rowGap:12,
+    rowGap:14,
   },
   card:{
-    flexBasis:"31.5%",
+    flexBasis:"48%",
     backgroundColor:AppTheme.colors.surface,
-    paddingVertical:13,
-    paddingHorizontal:9,
-    borderRadius:18,
-    alignItems:"center",
+    padding:14,
+    borderRadius:AppTheme.radius.lg,
     borderWidth:1,
-    borderColor:AppTheme.colors.borderStrong,
-    gap:6,
-    minHeight:108,
+    borderColor:AppTheme.colors.border,
+    gap:12,
+    minHeight:152,
+    overflow:"hidden",
+    position:"relative",
     ...AppTheme.shadow.sm,
   },
+  cardAccentShape:{
+    position:"absolute",
+    right:-26,
+    top:-24,
+    width:92,
+    height:76,
+    borderRadius:22,
+    backgroundColor:AppTheme.colors.accentSoft,
+    transform:[{ rotate:"-18deg" }],
+  },
+  cardTopRow:{
+    flexDirection:"row",
+    alignItems:"center",
+    justifyContent:"space-between",
+    zIndex:1,
+  },
   cardIconWrap:{
-    width:38,
-    height:38,
-    borderRadius:14,
+    width:42,
+    height:42,
+    borderRadius:16,
     backgroundColor:AppTheme.colors.primarySoft,
     alignItems:"center",
     justifyContent:"center",
   },
-  cardText:{
+  cardArrowWrap:{
+    width:30,
+    height:30,
+    borderRadius:AppTheme.radius.pill,
+    backgroundColor:AppTheme.colors.surface,
+    alignItems:"center",
+    justifyContent:"center",
+    borderWidth:1,
+    borderColor:AppTheme.colors.border,
+  },
+  cardClassWrap:{
+    zIndex:1,
+  },
+  cardEyebrow:{
+    color:AppTheme.colors.textMuted,
+    fontSize:10,
+    fontWeight:"800",
+    textTransform:"uppercase",
+    letterSpacing:0.4,
+    marginBottom:2,
+  },
+  cardClassRow:{
+    flexDirection:"row",
+    alignItems:"baseline",
+    gap:6,
+    flexWrap:"wrap",
+  },
+  cardGrade:{
     color:AppTheme.colors.text,
-    fontSize:14,
+    fontSize:31,
     fontWeight:"900",
-    textAlign:"center",
-    lineHeight:18,
+    lineHeight:36,
+  },
+  cardGroup:{
+    color:AppTheme.colors.primary,
+    fontSize:16,
+    fontWeight:"900",
+    lineHeight:22,
+  },
+  cardCountPill:{
+    alignSelf:"flex-start",
+    flexDirection:"row",
+    alignItems:"center",
+    gap:5,
+    backgroundColor:AppTheme.colors.surfaceMuted,
+    borderRadius:AppTheme.radius.pill,
+    borderWidth:1,
+    borderColor:AppTheme.colors.border,
+    paddingHorizontal:9,
+    paddingVertical:6,
+    zIndex:1,
   },
   cardCount:{
     color:AppTheme.colors.textMuted,
     fontSize:11,
-    fontWeight:"700",
+    fontWeight:"800",
   },
   heroCard:{
     backgroundColor:AppTheme.colors.primary,
