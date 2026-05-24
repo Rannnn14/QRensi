@@ -17,7 +17,6 @@ import { supabaseAdmin } from "../../lib/supabaseAdmin"
 import { AdminBottomNav } from "../../components/admin-bottom-nav"
 import { useFeatureBack } from "../../hooks/use-feature-back"
 import { AppTheme } from "../../constants/theme"
-import { InfoCard } from "../../components/ui/info-card"
 import { ModalCard } from "../../components/ui/modal-card"
 import { PageHeader } from "../../components/ui/page-header"
 import { ScreenShell } from "../../components/ui/screen-shell"
@@ -81,12 +80,6 @@ export default function DaftarAkun() {
         return true
       }
 
-      if (selectedClass) {
-        setSelectedClass(null)
-        setSearchQuery("")
-        return true
-      }
-
       return false
     },
   })
@@ -147,10 +140,32 @@ export default function DaftarAkun() {
     }
   }, [getProfiles])
 
-  const siswa = profiles
-    .filter((user) => user.kelas === selectedClass)
-    .filter((user) => !searchQuery.trim() || matchesStudentSearch(user.nama || "", searchQuery))
+  const selectedClassLabel = selectedClass || "Semua kelas"
+  const classCounts = classes.map((kelas) => ({
+    kelas,
+    total: profiles.filter((user) => user.kelas === kelas).length,
+  }))
+
+  const filteredUsers = profiles
+    .filter((user) => !selectedClass || user.kelas === selectedClass)
+    .filter((user) => {
+      const query = searchQuery.trim().toLowerCase()
+
+      if (!query) return true
+
+      return (
+        matchesStudentSearch(user.nama || "", query) ||
+        String(user.nisn || "").toLowerCase().includes(query) ||
+        String(user.email || "").toLowerCase().includes(query) ||
+        String(user.kelas || "").toLowerCase().includes(query)
+      )
+    })
     .sort((a, b) => compareStudentNames(a.nama, b.nama))
+
+  const clearFilters = () => {
+    setSelectedClass(null)
+    setSearchQuery("")
+  }
 
   const onRefresh = async () => {
     setRefreshing(true)
@@ -549,8 +564,8 @@ export default function DaftarAkun() {
   return (
     <ScreenShell viewProps={{ style: styles.container }} footer={<AdminBottomNav activeKey="daftar_akun" />}>
       <PageHeader
-        eyebrow={selectedClass ? "Daftar siswa" : "Direktori akun"}
-        title={selectedClass ? `Kelas ${selectedClass}` : "Daftar Akun Siswa"}
+        eyebrow="Master data"
+        title="Daftar Akun Siswa"
         onBackPress={handleBack}
         rightSlot={
           <TouchableOpacity
@@ -566,58 +581,104 @@ export default function DaftarAkun() {
         }
       />
 
-      {!selectedClass ? (
-        <InfoCard
-          title="Pilih kelas untuk melihat akun aktif"
-          description="Admin dapat melihat email masuk siswa, mengubah data siswa, dan mengganti kata sandi baru tanpa menampilkan kata sandi lama."
-        />
-      ) : null}
-
       <ScrollView
         showsVerticalScrollIndicator={false}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
-        {!selectedClass ? (
-          <View style={styles.grid}>
-            {classes.map((kelas) => {
-              const jumlah = profiles.filter((user) => user.kelas === kelas).length
-              const [grade, group] = kelas.split(" ")
+        <View style={styles.masterSummary}>
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryLabel}>Total akun</Text>
+            <Text style={styles.summaryValue}>{profiles.length}</Text>
+          </View>
+          <View style={styles.summaryDivider} />
+          <View style={styles.summaryItem}>
+            <Text style={styles.summaryLabel}>Data tampil</Text>
+            <Text style={styles.summaryValue}>{filteredUsers.length}</Text>
+          </View>
+          <TouchableOpacity
+            style={[styles.summaryAddButton, processingAction === "create" && styles.disabledButton]}
+            onPress={() => {
+              setCreateKelas(selectedClass || "7 Banin")
+              setCreateModalVisible(true)
+            }}
+            disabled={processingAction === "create"}
+          >
+            <Ionicons name="add" size={18} color={AppTheme.colors.white} />
+            <Text style={styles.summaryAddText}>Tambah</Text>
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.filterPanel}>
+          <View style={styles.filterHeader}>
+            <View>
+              <Text style={styles.filterTitle}>Filter data</Text>
+              <Text style={styles.filterHint}>Kelas: {selectedClassLabel}</Text>
+            </View>
+            {(selectedClass || searchQuery) ? (
+              <TouchableOpacity style={styles.clearFilterButton} onPress={clearFilters}>
+                <Ionicons name="close-circle-outline" size={16} color={AppTheme.colors.primary} />
+                <Text style={styles.clearFilterText}>Reset</Text>
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          <View style={styles.searchBox}>
+            <Ionicons name="search-outline" size={18} color="#6d7e90" />
+            <TextInput
+              placeholder="Cari nama, NISN, email, atau kelas"
+              placeholderTextColor="#8ca0b3"
+              value={searchQuery}
+              onChangeText={setSearchQuery}
+              style={styles.searchInput}
+              autoCapitalize="characters"
+              autoCorrect={false}
+            />
+            {searchQuery ? (
+              <TouchableOpacity onPress={() => setSearchQuery("")}>
+                <Ionicons name="close-circle" size={18} color="#6d7e90" />
+              </TouchableOpacity>
+            ) : null}
+          </View>
+
+          <View style={styles.classFilterList}>
+            <TouchableOpacity
+              style={[styles.classChip, !selectedClass && styles.classChipActive]}
+              onPress={() => setSelectedClass(null)}
+            >
+              <Text style={[styles.classChipText, !selectedClass && styles.classChipTextActive]}>
+                Semua
+              </Text>
+              <Text style={[styles.classChipCount, !selectedClass && styles.classChipTextActive]}>
+                {profiles.length}
+              </Text>
+            </TouchableOpacity>
+            {classCounts.map((item) => {
+              const isActive = selectedClass === item.kelas
+
               return (
                 <TouchableOpacity
-                  key={kelas}
-                  style={styles.card}
-                  onPress={() => setSelectedClass(kelas)}
+                  key={item.kelas}
+                  style={[styles.classChip, isActive && styles.classChipActive]}
+                  onPress={() => setSelectedClass(item.kelas)}
                 >
-                  <View style={styles.cardAccentShape} />
-                  <View style={styles.cardTopRow}>
-                    <View style={styles.cardIconWrap}>
-                      <Ionicons name="school-outline" size={19} color={AppTheme.colors.primary} />
-                    </View>
-                    <View style={styles.cardArrowWrap}>
-                      <Ionicons name="chevron-forward" size={15} color={AppTheme.colors.primary} />
-                    </View>
-                  </View>
-                  <View style={styles.cardClassWrap}>
-                    <Text style={styles.cardEyebrow}>Kelas</Text>
-                    <View style={styles.cardClassRow}>
-                      <Text style={styles.cardGrade}>{grade}</Text>
-                      <Text style={styles.cardGroup}>{group}</Text>
-                    </View>
-                  </View>
-                  <View style={styles.cardCountPill}>
-                    <Ionicons name="person-outline" size={13} color={AppTheme.colors.textMuted} />
-                    <Text style={styles.jumlah}>{jumlah} siswa</Text>
-                  </View>
+                  <Text style={[styles.classChipText, isActive && styles.classChipTextActive]}>
+                    {item.kelas}
+                  </Text>
+                  <Text style={[styles.classChipCount, isActive && styles.classChipTextActive]}>
+                    {item.total}
+                  </Text>
                 </TouchableOpacity>
               )
             })}
           </View>
-        ) : (
-          <View style={styles.listContainer}>
-            <SectionHeader
-              title={`Siswa ${selectedClass}`}
-              hint={`${siswa.length} siswa terdaftar. Edit data, lihat email masuk, ganti kata sandi, hapus siswa, atau atur ulang satu kelas penuh.`}
-              rightSlot={
+        </View>
+
+        <View style={styles.listContainer}>
+          <SectionHeader
+            title="Data akun"
+            hint={`${filteredUsers.length} dari ${profiles.length} akun ditampilkan. Kelola email, kelas, kata sandi, atau hapus akun dari daftar ini.`}
+            rightSlot={
+              selectedClass ? (
                 <TouchableOpacity
                   style={[styles.resetButton, processingAction === "reset" && styles.disabledButton]}
                   onPress={resetClassUsers}
@@ -625,68 +686,65 @@ export default function DaftarAkun() {
                 >
                   <Ionicons name="refresh-outline" size={16} color="#fff" />
                   <Text style={styles.resetButtonText}>
-                    {processingAction === "reset" ? "Mengatur ulang..." : "Atur Ulang Kelas"}
+                    {processingAction === "reset" ? "Reset..." : "Reset Kelas"}
                   </Text>
                 </TouchableOpacity>
-              }
-            />
+              ) : null
+            }
+          />
 
-            <View style={styles.searchBox}>
-              <Ionicons name="search-outline" size={18} color="#6d7e90" />
-              <TextInput
-                placeholder="Cari nama siswa"
-                placeholderTextColor="#A89F9F"
-                value={searchQuery}
-                onChangeText={setSearchQuery}
-                style={styles.searchInput}
-                autoCapitalize="characters"
-                autoCorrect={false}
-              />
-              {searchQuery ? (
-                <TouchableOpacity onPress={() => setSearchQuery("")}>
-                  <Ionicons name="close-circle" size={18} color="#6d7e90" />
-                </TouchableOpacity>
-              ) : null}
-            </View>
+          <View style={styles.tableHeader}>
+            <Text style={[styles.tableHeadText, styles.numberColumn]}>No</Text>
+            <Text style={[styles.tableHeadText, styles.studentColumn]}>Siswa</Text>
+            <Text style={[styles.tableHeadText, styles.actionColumn]}>Aksi</Text>
+          </View>
 
-            {siswa.length === 0 ? (
-              <Text style={styles.kosong}>
-                {searchQuery ? "Nama siswa tidak ditemukan" : "Belum ada akun"}
-              </Text>
-            ) : (
-              siswa.map((user) => (
-                <View key={user.id} style={styles.userItem}>
-                  <View style={styles.userInfo}>
-                    <Ionicons name="person-circle" size={24} color={AppTheme.colors.primary} />
-                    <View style={styles.userTextWrap}>
-                      <Text style={styles.nama}>{user.nama}</Text>
-                      <Text style={styles.kelasBadge}>{user.kelas}</Text>
-                      <Text style={styles.emailText}>{user.email || "Email tidak tersedia"}</Text>
+          {filteredUsers.length === 0 ? (
+            <Text style={styles.kosong}>
+              {searchQuery || selectedClass ? "Data akun tidak ditemukan" : "Belum ada akun siswa"}
+            </Text>
+          ) : (
+            filteredUsers.map((user, index) => (
+              <View key={user.id} style={styles.userItem}>
+                <Text style={styles.rowNumber}>{index + 1}</Text>
+                <View style={styles.userTextWrap}>
+                  <View style={styles.userTitleRow}>
+                    <Text style={styles.nama} numberOfLines={1}>{user.nama || "Nama belum tersedia"}</Text>
+                    <Text style={styles.kelasBadge}>{user.kelas || "-"}</Text>
+                  </View>
+                  <View style={styles.metaGrid}>
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaLabel}>NISN</Text>
+                      <Text style={styles.metaValue}>{user.nisn || "-"}</Text>
+                    </View>
+                    <View style={styles.metaItem}>
+                      <Text style={styles.metaLabel}>Email</Text>
+                      <Text style={styles.metaValue} numberOfLines={1}>
+                        {user.email || "Email tidak tersedia"}
+                      </Text>
                     </View>
                   </View>
-                  <View style={styles.actionRow}>
-                    <TouchableOpacity
-                      style={styles.editButton}
-                      onPress={() => openEditModal(user)}
-                      disabled={processingAction !== null}
-                    >
-                      <Ionicons name="create-outline" size={16} color="#16324f" />
-                      <Text style={styles.editButtonText}>Kelola</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={styles.deleteButton}
-                      onPress={() => deleteUser(user)}
-                      disabled={processingAction !== null}
-                    >
-                      <Ionicons name="trash-outline" size={16} color="#fff" />
-                      <Text style={styles.deleteButtonText}>Hapus</Text>
-                    </TouchableOpacity>
-                  </View>
                 </View>
-              ))
-            )}
-          </View>
-        )}
+                <View style={styles.actionColumn}>
+                  <TouchableOpacity
+                    style={styles.iconActionButton}
+                    onPress={() => openEditModal(user)}
+                    disabled={processingAction !== null}
+                  >
+                    <Ionicons name="create-outline" size={17} color={AppTheme.colors.primary} />
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.iconActionButton, styles.iconDeleteButton]}
+                    onPress={() => deleteUser(user)}
+                    disabled={processingAction !== null}
+                  >
+                    <Ionicons name="trash-outline" size={17} color={AppTheme.colors.danger} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ))
+          )}
+        </View>
       </ScrollView>
 
       <Modal transparent animationType="fade" visible={createModalVisible} onRequestClose={closeCreateModal}>
@@ -905,121 +963,128 @@ const styles = StyleSheet.create({
     shadowRadius: 16,
     elevation: 6,
   },
-  grid: { flexDirection: "row", flexWrap: "wrap", justifyContent: "space-between", rowGap: 14 },
-  card: {
-    width: "48%",
-    backgroundColor: AppTheme.colors.surface,
-    padding: 14,
+  masterSummary: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: AppTheme.colors.primary,
     borderRadius: AppTheme.radius.lg,
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-    minHeight: 152,
-    overflow: "hidden",
-    position: "relative",
-    justifyContent: "space-between",
+    padding: 14,
+    marginBottom: 12,
     gap: 12,
+    borderWidth: 1,
+    borderColor: AppTheme.colors.primaryMuted,
     ...AppTheme.shadow.sm,
   },
-  cardActive: {
+  summaryItem: {
+    flex: 1,
+  },
+  summaryLabel: {
+    color: AppTheme.colors.primarySoft,
+    fontSize: 11,
+    fontWeight: "700",
+    marginBottom: 2,
+  },
+  summaryValue: {
+    color: AppTheme.colors.white,
+    fontSize: 21,
+    fontWeight: "800",
+  },
+  summaryDivider: {
+    width: 1,
+    height: 32,
+    backgroundColor: "rgba(255,255,255,0.18)",
+  },
+  summaryAddButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    backgroundColor: AppTheme.colors.accent,
+    borderRadius: AppTheme.radius.sm,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  summaryAddText: {
+    color: AppTheme.colors.white,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  filterPanel: {
     backgroundColor: AppTheme.colors.surface,
+    borderRadius: AppTheme.radius.lg,
+    padding: 14,
+    marginBottom: 12,
     borderWidth: 1,
-    borderColor: AppTheme.colors.primary,
+    borderColor: AppTheme.colors.border,
+    ...AppTheme.shadow.sm,
   },
-  cardAccentShape: {
-    position: "absolute",
-    right: -26,
-    top: -24,
-    width: 92,
-    height: 76,
-    borderRadius: 22,
-    backgroundColor: AppTheme.colors.accentSoft,
-    transform: [{ rotate: "-18deg" }],
-  },
-  cardAccentShapeActive: {
-    backgroundColor: AppTheme.colors.primarySoft,
-  },
-  cardTopRow: {
+  filterHeader: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-between",
-    zIndex: 1,
+    marginBottom: 10,
+    gap: 12,
   },
-  cardIconWrap: {
-    width: 42,
-    height: 42,
-    borderRadius: 16,
-    backgroundColor: AppTheme.colors.primarySoft,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  cardIconWrapActive: {
-    borderWidth: 1,
-    borderColor: AppTheme.colors.primary,
-  },
-  cardArrowWrap: {
-    width: 30,
-    height: 30,
-    borderRadius: AppTheme.radius.pill,
-    backgroundColor: AppTheme.colors.surface,
-    alignItems: "center",
-    justifyContent: "center",
-    borderWidth: 1,
-    borderColor: AppTheme.colors.border,
-  },
-  cardArrowWrapActive: {
-    borderColor: AppTheme.colors.primary,
-  },
-  cardClassWrap: {
-    zIndex: 1,
-  },
-  cardEyebrow: {
-    color: AppTheme.colors.textMuted,
-    fontSize: 10,
-    fontWeight: "800",
-    textTransform: "uppercase",
-    letterSpacing: 0.4,
-    marginBottom: 2,
-  },
-  cardClassRow: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    gap: 6,
-    flexWrap: "wrap",
-  },
-  cardGrade: {
+  filterTitle: {
     color: AppTheme.colors.text,
-    fontSize: 31,
-    fontWeight: "900",
-    lineHeight: 36,
+    fontSize: 15,
+    fontWeight: "800",
   },
-  cardGroup: {
-    color: AppTheme.colors.primary,
-    fontSize: 16,
-    fontWeight: "900",
-    lineHeight: 22,
+  filterHint: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    marginTop: 2,
   },
-  cardCountPill: {
-    alignSelf: "flex-start",
+  clearFilterButton: {
     flexDirection: "row",
     alignItems: "center",
     gap: 5,
+    backgroundColor: AppTheme.colors.primarySoft,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+  },
+  clearFilterText: {
+    color: AppTheme.colors.primary,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  classFilterList: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 8,
+    marginTop: 10,
+  },
+  classChip: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
     backgroundColor: AppTheme.colors.surfaceMuted,
     borderRadius: AppTheme.radius.pill,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
-    paddingHorizontal: 9,
-    paddingVertical: 6,
-    zIndex: 1,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
   },
-  cardCountPillActive: {
-    backgroundColor: AppTheme.colors.primarySoft,
-    borderColor: AppTheme.colors.primarySoft,
+  classChipActive: {
+    backgroundColor: AppTheme.colors.primary,
+    borderColor: AppTheme.colors.primary,
   },
-  jumlah: { fontSize: 11, color: AppTheme.colors.textMuted, fontWeight: "800" },
+  classChipText: {
+    color: AppTheme.colors.text,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  classChipCount: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+  },
+  classChipTextActive: {
+    color: AppTheme.colors.white,
+  },
   listContainer: {
-    marginTop: 20,
     backgroundColor: AppTheme.colors.surface,
-    padding: 16,
+    padding: 14,
     borderRadius: AppTheme.radius.lg,
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
@@ -1033,15 +1098,14 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: AppTheme.colors.border,
     borderRadius: AppTheme.radius.md,
-    paddingHorizontal: 14,
-    paddingVertical: 4,
-    marginBottom: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 2,
   },
   searchInput: {
     flex: 1,
-    minHeight: 42,
+    minHeight: 38,
     color: AppTheme.colors.text,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "600",
   },
   resetButton: {
@@ -1054,46 +1118,103 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   resetButtonText: { color: AppTheme.colors.white, fontWeight: "700", fontSize: 12 },
-  userItem: {
-    paddingVertical: 12,
-    borderTopWidth: 1,
-    borderTopColor: AppTheme.colors.border,
-  },
-  userInfo: {
+  tableHeader: {
     flexDirection: "row",
     alignItems: "center",
-    justifyContent: "space-between",
+    backgroundColor: AppTheme.colors.surfaceMuted,
+    borderRadius: AppTheme.radius.sm,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    marginBottom: 4,
   },
-  userTextWrap: { marginLeft: 10, flex: 1 },
-  nama: { fontSize: 15, color: AppTheme.colors.text, fontWeight: "700" },
-  kelasBadge: { color: AppTheme.colors.textMuted, marginTop: 4, fontSize: 12 },
-  emailText: { color: AppTheme.colors.primaryMuted, marginTop: 4, fontSize: 12, fontWeight: "600" },
-  actionRow: {
+  tableHeadText: {
+    color: AppTheme.colors.textMuted,
+    fontSize: 11,
+    fontWeight: "800",
+    textTransform: "uppercase",
+  },
+  numberColumn: {
+    width: 34,
+  },
+  studentColumn: {
+    flex: 1,
+  },
+  actionColumn: {
+    width: 74,
     flexDirection: "row",
     justifyContent: "flex-end",
-    marginTop: 10,
-    gap: 10,
+    gap: 6,
   },
-  editButton: {
+  userItem: {
     flexDirection: "row",
     alignItems: "center",
-    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
+    borderTopWidth: 1,
+    borderTopColor: AppTheme.colors.border,
+    gap: 8,
+  },
+  rowNumber: {
+    width: 30,
+    color: AppTheme.colors.textMuted,
+    fontSize: 12,
+    fontWeight: "800",
+    textAlign: "center",
+  },
+  userTextWrap: { flex: 1, minWidth: 0 },
+  userTitleRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 8,
+    marginBottom: 6,
+  },
+  nama: {
+    flex: 1,
+    fontSize: 13,
+    color: AppTheme.colors.text,
+    fontWeight: "800",
+  },
+  kelasBadge: {
+    color: AppTheme.colors.primary,
     backgroundColor: AppTheme.colors.primarySoft,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: AppTheme.radius.sm,
+    borderRadius: AppTheme.radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    fontSize: 10,
+    fontWeight: "800",
+    overflow: "hidden",
   },
-  editButtonText: { color: AppTheme.colors.primary, fontWeight: "700" },
-  deleteButton: {
+  metaGrid: {
+    gap: 4,
+  },
+  metaItem: {
     flexDirection: "row",
     alignItems: "center",
     gap: 6,
-    backgroundColor: AppTheme.colors.danger,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: AppTheme.radius.sm,
   },
-  deleteButtonText: { color: AppTheme.colors.white, fontWeight: "700" },
+  metaLabel: {
+    width: 36,
+    color: AppTheme.colors.textMuted,
+    fontSize: 10,
+    fontWeight: "800",
+  },
+  metaValue: {
+    flex: 1,
+    color: AppTheme.colors.primaryMuted,
+    fontSize: 11,
+    fontWeight: "700",
+  },
+  iconActionButton: {
+    width: 32,
+    height: 32,
+    borderRadius: AppTheme.radius.sm,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: AppTheme.colors.primarySoft,
+  },
+  iconDeleteButton: {
+    backgroundColor: "#FEE2E2",
+  },
   kosong: { color: AppTheme.colors.textMuted, fontStyle: "italic" },
   modalOverlay: {
     flex: 1,

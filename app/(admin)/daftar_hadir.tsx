@@ -732,29 +732,29 @@ export default function DaftarHadir() {
           const status = getStatus(item.id)
           return(
             <View key={item.id} style={styles.row}>
-              <Text style={styles.nama}>{item.nama}</Text>
-              <Text style={[styles.statusInfo, !status && styles.statusInfoEmpty]}>
-                Status: {getStatusLabel(status)}
-              </Text>
-              <View style={styles.buttonRow}>
-                <TouchableOpacity
-                  style={[styles.btn,status==="hadir" && styles.hadir]}
-                  onPress={()=>toggleStatus(item.id,"hadir")}
-                >
-                  <Text style={styles.btnText}>Hadir</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.btn,status==="izin" && styles.izin]}
-                  onPress={()=>toggleStatus(item.id,"izin")}
-                >
-                  <Text style={styles.btnText}>Izin</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={[styles.btn,status==="sakit" && styles.sakit]}
-                  onPress={()=>toggleStatus(item.id,"sakit")}
-                >
-                  <Text style={styles.btnText}>Sakit</Text>
-                </TouchableOpacity>
+              <View style={styles.studentRow}>
+                <View style={styles.studentInfo}>
+                  <Text style={styles.nama}>{item.nama}</Text>
+                  <Text style={[styles.statusInfo, !status && styles.statusInfoEmpty]}>
+                    Status: {getStatusLabel(status)}
+                  </Text>
+                </View>
+                <View style={styles.statusPickerWrap}>
+                  <Picker
+                    selectedValue={status || ""}
+                    onValueChange={(value) => {
+                      if (!value || value === status) return
+                      toggleStatus(item.id, String(value))
+                    }}
+                    mode="dropdown"
+                    style={styles.statusPicker}
+                  >
+                    <Picker.Item label="Pilih" value="" />
+                    <Picker.Item label="Hadir" value="hadir" />
+                    <Picker.Item label="Izin" value="izin" />
+                    <Picker.Item label="Sakit" value="sakit" />
+                  </Picker>
+                </View>
               </View>
             </View>
           )
@@ -1187,54 +1187,51 @@ const styles = StyleSheet.create({
   },
   row:{
     backgroundColor:AppTheme.colors.surface,
-    padding:14,
-    borderRadius:18,
-    marginBottom:12,
+    paddingHorizontal:12,
+    paddingVertical:9,
+    borderRadius:12,
+    marginBottom:8,
     borderWidth:1,
     borderColor:AppTheme.colors.border,
     ...AppTheme.shadow.sm,
   },
+  studentRow:{
+    flexDirection:"row",
+    alignItems:"center",
+    justifyContent:"space-between",
+    gap:10,
+  },
+  studentInfo:{
+    flex:1,
+    minWidth:0,
+  },
   nama:{
-    fontSize:18,
-    fontWeight:"600",
-    marginBottom:10,
+    fontSize:14,
+    fontWeight:"700",
+    marginBottom:3,
     color:AppTheme.colors.text
   },
   statusInfo:{
     color:AppTheme.colors.primary,
-    fontSize:13,
+    fontSize:11,
     fontWeight:"600",
-    marginBottom:10,
   },
   statusInfoEmpty:{
     color:AppTheme.colors.textMuted,
   },
-  buttonRow:{
-    flexDirection:"row",
-    justifyContent:"space-between"
-  },
-  btn:{
-    flex:1,
-    paddingVertical:10,
-    marginHorizontal:3,
-    borderRadius:14,
-    backgroundColor:AppTheme.colors.primarySoft,
-    alignItems:"center",
+  statusPickerWrap:{
+    width:112,
+    minHeight:34,
+    borderRadius:10,
     borderWidth:1,
-    borderColor:"rgba(22, 50, 79, 0.08)",
+    borderColor:AppTheme.colors.border,
+    backgroundColor:AppTheme.colors.surfaceMuted,
+    overflow:"hidden",
+    justifyContent:"center",
   },
-  hadir:{
-    backgroundColor:AppTheme.colors.success
-  },
-  izin:{
-    backgroundColor:"#FACC15"
-  },
-  sakit:{
-    backgroundColor:AppTheme.colors.danger
-  },
-  btnText:{
-    color:AppTheme.colors.white,
-    fontWeight:"bold"
+  statusPicker:{
+    color:AppTheme.colors.text,
+    fontSize:12,
   },
   emptyState:{
     color:AppTheme.colors.textMuted,
