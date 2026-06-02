@@ -34,6 +34,7 @@ import {
   listAuthUserEmailsById,
   updateStudentAccount,
 } from "../../lib/admin-user-management"
+import { DEFAULT_CLASSES, getAvailableClasses } from "../../lib/classes"
 
 type Profile = {
   id: string
@@ -46,6 +47,7 @@ type Profile = {
 
 export default function DaftarAkun() {
   const [profiles, setProfiles] = useState<Profile[]>([])
+  const [classes, setClasses] = useState<string[]>(DEFAULT_CLASSES)
   const [selectedClass, setSelectedClass] = useState<string | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [createModalVisible, setCreateModalVisible] = useState(false)
@@ -84,8 +86,6 @@ export default function DaftarAkun() {
     },
   })
 
-  const classes = ["7 Banin", "7 Banat", "8 Banin", "8 Banat", "9 Banin", "9 Banat"]
-
   const getProfiles = useCallback(async (refreshEmails = false) => {
     try {
       let nextEmailByUserId = emailByUserId
@@ -106,6 +106,7 @@ export default function DaftarAkun() {
       }
 
       if (data) {
+        setClasses(await getAvailableClasses(data.map((item) => item.kelas)))
         setProfiles(
           [...data]
             .map((item) => ({

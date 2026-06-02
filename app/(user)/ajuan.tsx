@@ -78,6 +78,39 @@ const isSecurityPolicyError = (error: unknown) => {
   );
 };
 
+const copyExistingProof = async (sourceSubmissionId: string, targetSubmissionId: string) => {
+  const { data: files, error: listError } = await supabaseAdmin.storage
+    .from("bukti-ajuan")
+    .list("pengajuan", {
+      search: sourceSubmissionId,
+      limit: 10,
+    });
+
+  if (listError) {
+    throw listError;
+  }
+
+  const sourceFile = files?.find(
+    (file) => file.name === sourceSubmissionId || file.name.startsWith(`${sourceSubmissionId}.`)
+  );
+
+  if (!sourceFile) {
+    return false;
+  }
+
+  const extension = sourceFile.name.includes(".") ? sourceFile.name.split(".").pop() : "jpg";
+  const targetFileName = extension ? `${targetSubmissionId}.${extension}` : targetSubmissionId;
+  const { error: copyError } = await supabaseAdmin.storage
+    .from("bukti-ajuan")
+    .copy(`pengajuan/${sourceFile.name}`, `pengajuan/${targetFileName}`);
+
+  if (copyError) {
+    throw copyError;
+  }
+
+  return true;
+};
+
 const getSubmissionAccess = (items: SubmissionItem[]): SubmissionAccess => {
   const permissionItems = items
     .filter((item) => item.jenis === "izin" || item.jenis === "sakit")
@@ -324,7 +357,13 @@ export default function Ajuan() {
         `Pengajuan izin atau sakit hanya bisa dikirim sampai jam ${getSubmissionCutoffLabel()}.`
       );
     }
-    if (!selectedImageUri && submissionAccess.mode !== "edit-pending") {
+    const canReusePreviousProof =
+      Boolean(submissionAccess.activeSubmission) &&
+      (submissionAccess.mode === "edit-pending" ||
+        submissionAccess.mode === "retry-approved" ||
+        submissionAccess.mode === "retry-rejected");
+
+    if (!selectedImageUri && !canReusePreviousProof) {
       return Alert.alert("Info", "Tambahkan bukti foto terlebih dahulu.");
     }
 
@@ -432,6 +471,11 @@ export default function Ajuan() {
           }
           throw new Error(`Upload foto gagal (${uploadResult.status}).`);
         }
+      } else if (
+        submissionAccess.mode !== "edit-pending" &&
+        submissionAccess.activeSubmission?.id
+      ) {
+        await copyExistingProof(submissionAccess.activeSubmission.id, submissionId);
       }
 
       Alert.alert(
@@ -603,14 +647,14 @@ export default function Ajuan() {
                 <Text style={styles.photoPickerText}>
                   {selectedImageUri
                     ? "Ambil Ulang Foto Bukti"
-                    : isEditingPending
+                    : isEditingPending || isRetryApproved || isRetryRejected
                       ? "Ganti Foto Bukti"
                       : "Ambil Foto Bukti"}
                 </Text>
               </TouchableOpacity>
 
               {selectedImageUri ? <Image source={{ uri: selectedImageUri }} style={styles.previewImage} /> : null}
-              {!selectedImageUri && isEditingPending ? (
+              {!selectedImageUri && (isEditingPending || isRetryApproved || isRetryRejected) ? (
                 <Text style={styles.photoHelperText}>
                   Foto bukti lama tetap dipakai kalau Anda tidak mengambil foto baru.
                 </Text>

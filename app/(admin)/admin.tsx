@@ -45,7 +45,7 @@ export default function Admin() {
   const lastNotificationIdRef = useRef<string | null>(null)
 
   const logout = async () => {
-    await supabase.auth.signOut()
+    await supabase.auth.signOut({ scope: "local" })
     router.replace("/login")
   }
 
@@ -61,7 +61,7 @@ export default function Admin() {
         .select("id, nama, kelas, jenis, created_at")
         .eq("status", "pending")
         .order("created_at", { ascending: false })
-        .limit(5),
+        .limit(30),
     ])
 
     setCounts({
@@ -185,22 +185,21 @@ export default function Admin() {
           {pendingSubmissions.length === 0 ? (
             <Text style={styles.noticeEmpty}>Belum ada pengajuan yang menunggu.</Text>
           ) : (
-            pendingSubmissions.map((item) => (
-              <View key={item.id} style={styles.noticeItem}>
-                <View style={styles.noticeBadge}>
-                  <Ionicons name="document-text-outline" size={16} color="#16324f" />
+            <ScrollView style={styles.noticeList} nestedScrollEnabled showsVerticalScrollIndicator>
+              {pendingSubmissions.map((item) => (
+                <View key={item.id} style={styles.noticeItem}>
+                  <View style={styles.noticeBadge}>
+                    <Ionicons name="document-text-outline" size={14} color="#16324f" />
+                  </View>
+                  <View style={styles.noticeCopy}>
+                    <Text style={styles.noticeItemTitle} numberOfLines={1}>{item.nama}</Text>
+                    <Text style={styles.noticeText} numberOfLines={1}>
+                      {getSubmissionDisplayType(item.jenis)} - Kelas {item.kelas} - {formatSubmissionDate(item.created_at)} {formatSubmissionTime(item.created_at)}
+                    </Text>
+                  </View>
                 </View>
-                <View style={styles.noticeCopy}>
-                  <Text style={styles.noticeItemTitle}>{item.nama}</Text>
-                  <Text style={styles.noticeText}>
-                    {getSubmissionDisplayType(item.jenis)} - Kelas {item.kelas}
-                  </Text>
-                  <Text style={styles.noticeText}>
-                    {formatSubmissionDate(item.created_at)} - {formatSubmissionTime(item.created_at)}
-                  </Text>
-                </View>
-              </View>
-            ))
+              ))}
+            </ScrollView>
           )}
         </TouchableOpacity>
 
@@ -425,16 +424,18 @@ const styles = StyleSheet.create({
   },
   noticeItem: {
     flexDirection: "row",
-    alignItems: "flex-start",
-    gap: 12,
-    paddingTop: 12,
-    paddingBottom: 2,
+    alignItems: "center",
+    gap: 10,
+    paddingVertical: 9,
     borderTopWidth: 1,
     borderTopColor: AppTheme.colors.border,
   },
+  noticeList: {
+    maxHeight: 220,
+  },
   noticeBadge: {
-    width: 38,
-    height: 38,
+    width: 30,
+    height: 30,
     borderRadius: AppTheme.radius.sm,
     backgroundColor: AppTheme.colors.primarySoft,
     justifyContent: "center",
@@ -450,14 +451,14 @@ const styles = StyleSheet.create({
   },
   noticeItemTitle: {
     color: AppTheme.colors.text,
-    fontSize: 14,
+    fontSize: 13,
     fontWeight: "800",
     marginBottom: 3,
   },
   noticeText: {
     color: AppTheme.colors.textMuted,
-    fontSize: 12,
-    lineHeight: 18,
+    fontSize: 11,
+    lineHeight: 16,
   },
   noticeEmpty: {
     color: AppTheme.colors.textMuted,

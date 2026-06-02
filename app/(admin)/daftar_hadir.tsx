@@ -23,20 +23,13 @@ import { saveCsvFile } from "../../lib/device-files"
 import { getYearOptions, MONTH_OPTIONS } from "../../lib/calendar"
 import { compareStudentNames } from "../../lib/student"
 import { AppTheme } from "../../constants/theme"
+import { DEFAULT_CLASSES, deleteClassName, getAvailableClasses, getPromotedClass, isSameClass, normalizeClassName, renameClass, saveCustomClass } from "../../lib/classes"
 
 export default function DaftarHadir() {
 
-  const kelasList = [
-    "7 Banin",
-    "7 Banat",
-    "8 Banin",
-    "8 Banat",
-    "9 Banin",
-    "9 Banat"
-  ]
-
   const [profiles,setProfiles] = useState<any[]>([])
   const [absensi,setAbsensi] = useState<any[]>([])
+  const [kelasList,setKelasList] = useState<string[]>(DEFAULT_CLASSES)
   const [availableDates,setAvailableDates] = useState<string[]>([])
   const [attendanceDateStatus,setAttendanceDateStatus] = useState<Record<string, string>>({})
   const [selectedKelas,setSelectedKelas] = useState<string | null>(null)
@@ -45,7 +38,11 @@ export default function DaftarHadir() {
   const [refreshing,setRefreshing] = useState(false)
   const [calendarVisible,setCalendarVisible] = useState(false)
   const [actionLoading,setActionLoading] = useState<"reset" | "download" | null>(null)
+  const [bulkLoading,setBulkLoading] = useState(false)
   const [searchQuery,setSearchQuery] = useState("")
+  const [addClassVisible,setAddClassVisible] = useState(false)
+  const [newClassName,setNewClassName] = useState("")
+  const [editingClassName,setEditingClassName] = useState<string | null>(null)
 
   const today = getLocalDateValue()
   const handleBack = useFeatureBack({
@@ -194,6 +191,15 @@ export default function DaftarHadir() {
     return nextMap
   }
 
+  const refreshClassList = useCallback(async (profileRows: any[] = []) => {
+    const nextClasses = await getAvailableClasses(profileRows.map((item) => item.kelas))
+    setKelasList(nextClasses)
+
+    if (selectedKelas && !nextClasses.includes(selectedKelas)) {
+      setSelectedKelas(null)
+    }
+  }, [selectedKelas])
+
   // Load data awal
   const loadData = useCallback(async () => {
     const profilesQuery = supabase.from("profiles").select("*").eq("role", "user")
@@ -225,18 +231,178 @@ export default function DaftarHadir() {
 
     const allProfiles = profileData || []
     const classProfiles = selectedKelas
-      ? allProfiles.filter(profile => profile.kelas === selectedKelas)
+      ? allProfiles.filter(profile => isSameClass(profile.kelas, selectedKelas))
       : []
 
     setProfiles(
-      [...allProfiles].sort((a, b) => compareStudentNames(a.nama, b.nama))
+      [...(selectedKelas ? classProfiles : allProfiles)].sort((a, b) => compareStudentNames(a.nama, b.nama))
     )
+    await refreshClassList(allProfiles)
     setAbsensi(absenData || [])
     setAvailableDates(uniqueDates)
     setAttendanceDateStatus(
       selectedKelas ? buildDateStatusMap(classProfiles, classAttendanceResult.data || []) : {}
     )
-  }, [selectedDate, selectedKelas, today])
+  }, [selectedDate, selectedKelas, today, refreshClassList])
+
+  const addClass = async () => {
+    try {
+      const normalized = await saveCustomClass(newClassName)
+      const nextClasses = await getAvailableClasses([...kelasList, normalized])
+      setKelasList(nextClasses)
+      setSelectedKelas(normalized)
+      setNewClassName("")
+      setAddClassVisible(false)
+      Alert.alert("Berhasil", `Kelas ${normalized} berhasil ditambahkan.`)
+    } catch (error: any) {
+      Alert.alert("Gagal", error.message || "Kelas belum berhasil ditambahkan.")
+    }
+  }
+
+  const openEditClass = (kelas: string) => {
+    setEditingClassName(kelas)
+    setNewClassName(kelas)
+    setAddClassVisible(true)
+  }
+
+  const closeClassModal = () => {
+    setAddClassVisible(false)
+    setEditingClassName(null)
+    setNewClassName("")
+  }
+
+  const saveClass = async () => {
+    if (editingClassName) {
+      await updateClassName()
+      return
+    }
+
+    await addClass()
+  }
+
+  const updateClassName = async () => {
+    if (!editingClassName) return
+
+    try {
+      const normalized = normalizeClassName(newClassName)
+      if (!normalized) {
+        Alert.alert("Gagal", "Nama kelas wajib diisi.")
+        return
+      }
+
+      if (
+        kelasList.some(
+          (item) =>
+            item.toLowerCase() === normalized.toLowerCase() &&
+            item.toLowerCase() !== editingClassName.toLowerCase()
+        )
+      ) {
+        Alert.alert("Gagal", `Kelas ${normalized} sudah ada.`)
+        return
+      }
+
+      const nextName = await renameClass(editingClassName, normalized)
+      const [profileUpdate, attendanceUpdate] = await Promise.all([
+        supabaseAdmin.from("profiles").update({ kelas: nextName }).eq("kelas", editingClassName),
+        supabaseAdmin.from("absensi").update({ kelas: nextName }).eq("kelas", editingClassName),
+      ])
+
+      if (profileUpdate.error) throw profileUpdate.error
+      if (attendanceUpdate.error) throw attendanceUpdate.error
+
+      if (selectedKelas === editingClassName) {
+        setSelectedKelas(nextName)
+      }
+
+      closeClassModal()
+      await loadData()
+      Alert.alert("Berhasil", `Kelas ${editingClassName} diganti menjadi ${nextName}.`)
+    } catch (error: any) {
+      Alert.alert("Gagal", error.message || "Nama kelas belum berhasil diubah.")
+    }
+  }
+
+  const confirmDeleteClass = (kelas: string) => {
+    const jumlahSiswa = profiles.filter(profile => isSameClass(profile.kelas, kelas)).length
+
+    if (jumlahSiswa > 0) {
+      Alert.alert(
+        "Kelas Masih Berisi Siswa",
+        `Kelas ${kelas} masih memiliki ${jumlahSiswa} siswa aktif. Pindahkan atau edit kelas siswa dulu sebelum menghapus kelas.`
+      )
+      return
+    }
+
+    Alert.alert(
+      "Hapus Kelas",
+      `Hapus kelas ${kelas} dari daftar kelas? Riwayat absensi lama tidak dihapus.`,
+      [
+        { text: "Batal", style: "cancel" },
+        {
+          text: "Hapus",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              await deleteClassName(kelas)
+              if (selectedKelas === kelas) {
+                setSelectedKelas(null)
+              }
+              await loadData()
+              Alert.alert("Berhasil", `Kelas ${kelas} berhasil dihapus dari daftar.`)
+            } catch (error: any) {
+              Alert.alert("Gagal", error.message || "Kelas belum berhasil dihapus.")
+            }
+          },
+        },
+      ]
+    )
+  }
+
+  const promoteAllStudents = () => {
+    Alert.alert(
+      "Naik Kelas Semua Siswa",
+      "Siswa kelas 7 menjadi kelas 8, kelas 8 menjadi kelas 9, dan kelas 9 dipindahkan ke Alumni. Lanjutkan?",
+      [
+        { text: "Batal", style: "cancel" },
+        {
+          text: "Lanjutkan",
+          style: "destructive",
+          onPress: async () => {
+            try {
+              setBulkLoading(true)
+              const { data, error } = await supabaseAdmin
+                .from("profiles")
+                .select("id, kelas")
+                .eq("role", "user")
+
+              if (error) throw error
+
+              const rows = data || []
+              const updates = rows
+                .map((item) => ({ id: item.id, kelas: getPromotedClass(item.kelas || "") }))
+                .filter((item) => item.kelas)
+
+              for (const item of updates) {
+                const { error: updateError } = await supabaseAdmin
+                  .from("profiles")
+                  .update({ kelas: item.kelas })
+                  .eq("id", item.id)
+
+                if (updateError) throw updateError
+              }
+
+              await loadData()
+              Alert.alert("Berhasil", `${updates.length} siswa berhasil diproses naik kelas.`)
+            } catch (error: any) {
+              Alert.alert("Gagal", error.message || "Kenaikan kelas belum berhasil.")
+            } finally {
+              setBulkLoading(false)
+            }
+          },
+        },
+      ]
+    )
+  }
 
   useEffect(()=>{
     loadData()
@@ -513,12 +679,32 @@ export default function DaftarHadir() {
                 Pilih kelas untuk mengatur status hadir, izin, dan sakit secara manual.
               </Text>
             </View>
+            <TouchableOpacity
+              style={styles.addClassButton}
+              onPress={() => {
+                setEditingClassName(null)
+                setNewClassName("")
+                setAddClassVisible(true)
+              }}
+            >
+              <Ionicons name="add" size={22} color={AppTheme.colors.primary} />
+            </TouchableOpacity>
           </View>
+          <TouchableOpacity
+            style={[styles.promoteButton, bulkLoading && styles.actionDisabled]}
+            onPress={promoteAllStudents}
+            disabled={bulkLoading}
+          >
+            <Ionicons name="school-outline" size={17} color={AppTheme.colors.white} />
+            <Text style={styles.promoteButtonText}>
+              {bulkLoading ? "Memproses..." : "Naik Kelas Semua Siswa"}
+            </Text>
+          </TouchableOpacity>
         </View>
 
         <View style={styles.grid}>
           {kelasList.map(item => {
-            const jumlahSiswa = profiles.filter(profile => profile.kelas === item).length
+            const jumlahSiswa = profiles.filter(profile => isSameClass(profile.kelas, item)).length
             const [grade, group] = item.split(" ")
 
             return (
@@ -532,8 +718,28 @@ export default function DaftarHadir() {
                   <View style={styles.cardIconWrap}>
                     <Ionicons name="people-outline" size={19} color={AppTheme.colors.primary} />
                   </View>
-                  <View style={styles.cardArrowWrap}>
-                    <Ionicons name="chevron-forward" size={15} color={AppTheme.colors.primary} />
+                  <View style={styles.cardActionRow}>
+                    <TouchableOpacity
+                      style={styles.cardMiniAction}
+                      onPress={(event) => {
+                        event.stopPropagation?.()
+                        openEditClass(item)
+                      }}
+                    >
+                      <Ionicons name="create-outline" size={14} color={AppTheme.colors.primary} />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.cardMiniAction, styles.cardMiniDanger]}
+                      onPress={(event) => {
+                        event.stopPropagation?.()
+                        confirmDeleteClass(item)
+                      }}
+                    >
+                      <Ionicons name="trash-outline" size={14} color={AppTheme.colors.danger} />
+                    </TouchableOpacity>
+                    <View style={styles.cardArrowWrap}>
+                      <Ionicons name="chevron-forward" size={15} color={AppTheme.colors.primary} />
+                    </View>
                   </View>
                 </View>
                 <View style={styles.cardClassWrap}>
@@ -553,6 +759,38 @@ export default function DaftarHadir() {
         </View>
           </View>
         </ScrollView>
+        <Modal
+          animationType="fade"
+          transparent
+          visible={addClassVisible}
+          onRequestClose={closeClassModal}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={styles.modalCard}>
+              <View style={styles.modalHeader}>
+                <View>
+                  <Text style={styles.modalEyebrow}>{editingClassName ? "Edit kelas" : "Tambah kelas"}</Text>
+                  <Text style={styles.modalTitle}>{editingClassName || "Kelas Baru"}</Text>
+                </View>
+                <TouchableOpacity style={styles.modalClose} onPress={closeClassModal}>
+                  <Ionicons name="close" size={18} color="#16324f" />
+                </TouchableOpacity>
+              </View>
+              <TextInput
+                value={newClassName}
+                onChangeText={(text) => setNewClassName(normalizeClassName(text))}
+                placeholder="Contoh: 7 Madinah"
+                placeholderTextColor="#8ca0b3"
+                style={styles.classInput}
+              />
+              <TouchableOpacity style={styles.saveClassButton} onPress={saveClass}>
+                <Text style={styles.saveClassButtonText}>
+                  {editingClassName ? "Simpan Perubahan" : "Simpan Kelas"}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
         <Modal
           animationType="fade"
           transparent
@@ -644,7 +882,7 @@ export default function DaftarHadir() {
 
   // Detail kelas
   const siswa = profiles
-    .filter(p => p.kelas === selectedKelas)
+    .filter(p => isSameClass(p.kelas, selectedKelas))
     .sort((a, b) => compareStudentNames(a.nama, b.nama))
 
   const filteredSiswa = siswa.filter(item =>
@@ -911,6 +1149,29 @@ const styles = StyleSheet.create({
     justifyContent:"space-between",
     alignItems:"flex-start",
   },
+  addClassButton:{
+    width:44,
+    height:44,
+    borderRadius:14,
+    backgroundColor:AppTheme.colors.accentSoft,
+    alignItems:"center",
+    justifyContent:"center",
+  },
+  promoteButton:{
+    marginTop:14,
+    flexDirection:"row",
+    alignItems:"center",
+    justifyContent:"center",
+    gap:8,
+    backgroundColor:AppTheme.colors.accent,
+    borderRadius:16,
+    paddingVertical:12,
+  },
+  promoteButtonText:{
+    color:AppTheme.colors.white,
+    fontWeight:"800",
+    fontSize:13,
+  },
   infoTitle:{
     color:AppTheme.colors.white,
     fontSize:17,
@@ -1052,6 +1313,25 @@ const styles = StyleSheet.create({
     justifyContent:"center",
     borderWidth:1,
     borderColor:AppTheme.colors.border,
+  },
+  cardActionRow:{
+    flexDirection:"row",
+    alignItems:"center",
+    gap:6,
+  },
+  cardMiniAction:{
+    width:30,
+    height:30,
+    borderRadius:AppTheme.radius.pill,
+    backgroundColor:AppTheme.colors.surface,
+    alignItems:"center",
+    justifyContent:"center",
+    borderWidth:1,
+    borderColor:AppTheme.colors.border,
+  },
+  cardMiniDanger:{
+    backgroundColor:AppTheme.colors.dangerSoft,
+    borderColor:"#F3B5B5",
   },
   cardClassWrap:{
     zIndex:1,
@@ -1314,5 +1594,26 @@ const styles = StyleSheet.create({
     backgroundColor:AppTheme.colors.primarySoft,
     alignItems:"center",
     justifyContent:"center",
+  },
+  classInput:{
+    marginTop:18,
+    borderWidth:1,
+    borderColor:AppTheme.colors.border,
+    borderRadius:AppTheme.radius.md,
+    paddingHorizontal:14,
+    paddingVertical:12,
+    color:AppTheme.colors.text,
+    backgroundColor:AppTheme.colors.surfaceMuted,
+  },
+  saveClassButton:{
+    marginTop:12,
+    backgroundColor:AppTheme.colors.primary,
+    borderRadius:AppTheme.radius.md,
+    paddingVertical:13,
+    alignItems:"center",
+  },
+  saveClassButtonText:{
+    color:AppTheme.colors.white,
+    fontWeight:"800",
   }
 })

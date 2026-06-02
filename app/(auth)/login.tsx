@@ -23,6 +23,7 @@ import { AppInput } from "../../components/ui/app-input";
 import { AppCard } from "../../components/ui/app-card";
 import { buildPasswordRequestNote } from "../../lib/pengajuan";
 import { normalizeStudentNisn } from "../../lib/student";
+import { getSupabaseNetworkMessage } from "../../lib/supabaseFetch";
 
 type AuthUserSummary = {
   id: string;
@@ -62,6 +63,21 @@ export default function Login() {
   const isForgotPasswordMismatch =
     forgotPasswordConfirm.length > 0 && forgotPassword !== forgotPasswordConfirm;
 
+  const getReadableAuthError = (authError: unknown) => {
+    const message =
+      authError instanceof Error
+        ? authError.message
+        : typeof authError === "string"
+          ? authError
+          : "Login gagal.";
+
+    if (/network request failed|failed to fetch|networkerror|tidak bisa terhubung/i.test(message)) {
+      return getSupabaseNetworkMessage();
+    }
+
+    return message;
+  };
+
   const hasForgotPasswordDraft = Boolean(
     forgotEmail.trim() ||
     forgotNisn.trim() ||
@@ -99,24 +115,45 @@ export default function Login() {
 
   const handleLogin = async () => {
     setError("");
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
 
-    if (authError) {
-      setError(authError.message);
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (!normalizedEmail || !password) {
+      setError("Email dan kata sandi wajib diisi.");
       return;
     }
 
-    if (authData.user) {
-      try {
-        await ensureProfileForUser(authData.user);
-      } catch (syncError: any) {
-        console.log("Gagal sinkron profil saat login:", syncError?.message || syncError);
-      }
+    if (!normalizedEmail.includes("@")) {
+      setError("Masukkan email yang valid.");
+      return;
     }
-    router.replace("/");
+
+    try {
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: normalizedEmail,
+        password,
+      });
+
+      if (authError) {
+        setError(getReadableAuthError(authError));
+        return;
+      }
+
+      if (authData.user) {
+        try {
+          await ensureProfileForUser(authData.user);
+        } catch (syncError) {
+          console.log(
+            "Gagal sinkron profil saat login:",
+            syncError instanceof Error ? syncError.message : syncError
+          );
+        }
+      }
+
+      router.replace("/");
+    } catch (loginError) {
+      setError(getReadableAuthError(loginError));
+    }
   };
 
   const findAuthUserByEmail = async (targetEmail: string) => {
@@ -283,8 +320,8 @@ export default function Login() {
 
       Alert.alert("Berhasil", "Permintaan ganti password sudah dikirim ke admin.");
       closeForgotPasswordModal();
-    } catch (requestError: any) {
-      Alert.alert("Error", requestError.message || "Gagal mengirim permintaan ganti password.");
+    } catch (requestError) {
+      Alert.alert("Error", getReadableAuthError(requestError));
     } finally {
       setForgotSubmitting(false);
     }

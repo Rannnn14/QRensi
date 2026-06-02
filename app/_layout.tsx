@@ -5,7 +5,6 @@ import { StatusBar } from "expo-status-bar";
 import * as SystemUI from "expo-system-ui";
 import { AppTheme } from "../constants/theme";
 import { cleanupExpiredSubmissions } from "../lib/pengajuan";
-import { supabase } from "../lib/supabase";
 
 export default function Layout() {
   useEffect(() => {
@@ -31,12 +30,8 @@ export default function Layout() {
 
     const handleAppStateChange = (state: string) => {
       if (state === "active") {
-        supabase.auth.startAutoRefresh();
         runExpiredSubmissionCleanup().catch(() => undefined);
-        return;
       }
-
-      supabase.auth.stopAutoRefresh();
     };
 
     runExpiredSubmissionCleanup().catch(() => undefined);
@@ -45,7 +40,6 @@ export default function Layout() {
 
     return () => {
       subscription.remove();
-      supabase.auth.stopAutoRefresh();
     };
   }, []);
 

@@ -4,7 +4,7 @@ import {
   StyleSheet,
   RefreshControl,
 } from "react-native"
-import { useState, useCallback } from "react"
+import { useEffect, useState, useCallback } from "react"
 import { supabaseAdmin } from "../../lib/supabaseAdmin"
 import { router } from "expo-router"
 import { Picker } from "@react-native-picker/picker"
@@ -23,6 +23,7 @@ import {
   normalizeStudentNisn,
 } from "../../lib/student"
 import { createStudentAccount } from "../../lib/admin-user-management"
+import { DEFAULT_CLASSES, getAvailableClasses } from "../../lib/classes"
 
 export default function TambahUser() {
   const [email, setEmail] = useState("")
@@ -30,11 +31,16 @@ export default function TambahUser() {
   const [nama, setNama] = useState("")
   const [nisn, setNisn] = useState("")
   const [kelas, setKelas] = useState("7 Banin")
+  const [classes, setClasses] = useState<string[]>(DEFAULT_CLASSES)
   const [loading, setLoading] = useState(false)
   const [showPassword, setShowPassword] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
 
   const handleNamaChange = (text: string) => setNama(normalizeStudentName(text))
+
+  useEffect(() => {
+    getAvailableClasses().then(setClasses).catch(() => setClasses(DEFAULT_CLASSES))
+  }, [])
 
   const isValidEmail = (value: string) => {
     const regex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
@@ -221,12 +227,9 @@ export default function TambahUser() {
 
           <View style={styles.pickerBox}>
             <Picker selectedValue={kelas} onValueChange={(v) => setKelas(v)}>
-              <Picker.Item label="7 Banin" value="7 Banin" />
-              <Picker.Item label="7 Banat" value="7 Banat" />
-              <Picker.Item label="8 Banin" value="8 Banin" />
-              <Picker.Item label="8 Banat" value="8 Banat" />
-              <Picker.Item label="9 Banin" value="9 Banin" />
-              <Picker.Item label="9 Banat" value="9 Banat" />
+              {classes.map((item) => (
+                <Picker.Item key={item} label={item} value={item} />
+              ))}
             </Picker>
           </View>
 
