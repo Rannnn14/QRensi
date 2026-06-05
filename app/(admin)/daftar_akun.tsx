@@ -596,17 +596,6 @@ export default function DaftarAkun() {
             <Text style={styles.summaryLabel}>Data tampil</Text>
             <Text style={styles.summaryValue}>{filteredUsers.length}</Text>
           </View>
-          <TouchableOpacity
-            style={[styles.summaryAddButton, processingAction === "create" && styles.disabledButton]}
-            onPress={() => {
-              setCreateKelas(selectedClass || "7 Banin")
-              setCreateModalVisible(true)
-            }}
-            disabled={processingAction === "create"}
-          >
-            <Ionicons name="add" size={18} color={AppTheme.colors.white} />
-            <Text style={styles.summaryAddText}>Tambah</Text>
-          </TouchableOpacity>
         </View>
 
         <View style={styles.filterPanel}>
@@ -994,20 +983,6 @@ const styles = StyleSheet.create({
     width: 1,
     height: 32,
     backgroundColor: "rgba(255,255,255,0.18)",
-  },
-  summaryAddButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    gap: 6,
-    backgroundColor: AppTheme.colors.accent,
-    borderRadius: AppTheme.radius.sm,
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-  },
-  summaryAddText: {
-    color: AppTheme.colors.white,
-    fontSize: 12,
-    fontWeight: "800",
   },
   filterPanel: {
     backgroundColor: AppTheme.colors.surface,
