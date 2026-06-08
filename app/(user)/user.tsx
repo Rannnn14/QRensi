@@ -1,4 +1,4 @@
-import { Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native"
+import { Alert, Image, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native"
 import { useEffect, useRef, useState } from "react"
 import { supabase } from "../../lib/supabase"
 import { router } from "expo-router"
@@ -426,7 +426,16 @@ export default function User() {
           </View>
         </View>
 
-        <TouchableOpacity style={styles.noticeCard} onPress={() => router.push("/ajuan" as any)}>
+        <TouchableOpacity
+          style={styles.noticeCard}
+          onPress={() => {
+            if (profile.kelas?.trim().toLowerCase() === "alumni") {
+              Alert.alert("Akses Ditolak", "Alumni tidak memiliki akses untuk pengajuan izin.")
+              return
+            }
+            router.push("/ajuan" as any)
+          }}
+        >
           <View style={styles.noticeHeader}>
             <Text style={styles.noticeTitle}>Riwayat Pengajuan Hari Ini</Text>
             <Text style={styles.noticeMeta}>{`${todaySubmissions.length} data`}</Text>
@@ -457,7 +466,13 @@ export default function User() {
 
         <TouchableOpacity
           style={styles.heroCard}
-          onPress={() => router.push("/status_kehadiran" as any)}
+          onPress={() => {
+            if (profile.kelas?.trim().toLowerCase() === "alumni") {
+              Alert.alert("Akses Ditolak", "Alumni tidak memiliki akses untuk fitur absensi.")
+              return
+            }
+            router.push("/status_kehadiran" as any)
+          }}
         >
           <View style={styles.heroTop}>
             <Text style={styles.heroLabel}>Kehadiran hari ini</Text>
@@ -480,7 +495,17 @@ export default function User() {
               <TouchableOpacity
                 key={item.title}
                 style={styles.quickCard}
-                onPress={item.action}
+                onPress={() => {
+                  if (profile.kelas?.trim().toLowerCase() === "alumni") {
+                    if (item.title === "Ajukan Izin") {
+                      Alert.alert("Akses Ditolak", "Alumni tidak memiliki akses untuk pengajuan izin.")
+                    } else {
+                      Alert.alert("Akses Ditolak", "Alumni tidak memiliki akses untuk fitur absensi.")
+                    }
+                    return
+                  }
+                  item.action()
+                }}
               >
                 <View style={styles.quickAccentShape} />
                 <View style={styles.quickTopRow}>

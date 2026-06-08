@@ -196,7 +196,25 @@ export const createStudentAccount = async ({
     throw new Error("NISN harus terdiri dari 10 digit")
   }
 
+  const { data: existingProfileByNisn, error: profileNisnError } = await supabaseAdmin
+    .from("profiles")
+    .select("id")
+    .eq("nisn", normalizedNisn)
+    .maybeSingle()
+
+  if (profileNisnError) {
+    throw new Error(profileNisnError.message)
+  }
+
+  if (existingProfileByNisn) {
+    throw new Error("Akun ini sudah digunakan")
+  }
+
   let authUser = await findAuthUserByEmail(normalizedEmail)
+  if (authUser) {
+    throw new Error("Akun ini sudah digunakan")
+  }
+
   let createdInThisAttempt = false
 
   if (!authUser) {

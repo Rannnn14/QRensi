@@ -14,6 +14,7 @@ import { ScreenShell } from "../../components/ui/screen-shell"
 
 export default function StatusKehadiran() {
   const [attendance, setAttendance] = useState({ status: "", waktu: "--:--" })
+  const [profile, setProfile] = useState<{ kelas: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [backgroundSyncing, setBackgroundSyncing] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -33,6 +34,7 @@ export default function StatusKehadiran() {
 
     // Setup realtime subscription
     let subscription: any = null
+    let profileSubscription: any = null
 
     const setupRealtime = async () => {
       const { data: userData } = await supabase.auth.getUser()
@@ -71,6 +73,25 @@ export default function StatusKehadiran() {
           }
         )
         .subscribe()
+
+      profileSubscription = supabase
+        .channel(`public:profiles:${userId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "profiles",
+            filter: `id=eq.${userId}`,
+          },
+          (payload) => {
+            const nextRow = payload.new as { kelas?: string } | undefined
+            if (nextRow) {
+              setProfile({ kelas: nextRow.kelas || "-" })
+            }
+          }
+        )
+        .subscribe()
     }
 
     setupRealtime()
@@ -79,6 +100,7 @@ export default function StatusKehadiran() {
     return () => {
       clearInterval(cutoffWatcher)
       if (subscription) supabase.removeChannel(subscription)
+      if (profileSubscription) supabase.removeChannel(profileSubscription)
     }
   }, [])
 
@@ -98,6 +120,19 @@ export default function StatusKehadiran() {
       setBackgroundSyncing(false)
       setRefreshing(false)
       return
+    }
+
+    try {
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("kelas")
+        .eq("id", userId)
+        .maybeSingle()
+      if (profileData) {
+        setProfile(profileData)
+      }
+    } catch (err) {
+      console.log("Gagal memuat profil di status_kehadiran:", err)
     }
 
     const today = getLocalDateValue()
@@ -145,6 +180,20 @@ export default function StatusKehadiran() {
         : normalizedStatus === "tidak hadir"
           ? { bg: AppTheme.colors.dangerSoft, text: AppTheme.colors.danger, note: "Batas absensi sudah lewat dan belum ada kehadiran atau izin yang disetujui." }
           : { bg: AppTheme.colors.primarySoft, text: AppTheme.colors.primary, note: "Silakan lakukan scan QR untuk mencatat kehadiran." }
+
+  if (profile?.kelas?.trim().toLowerCase() === "alumni") {
+    return (
+      <ScreenShell scroll footer={<UserBottomNav activeKey="status_kehadiran" />}>
+        <View style={styles.shell}>
+          <PageHeader eyebrow="Kehadiran Hari Ini" title="Status Kehadiran" onBackPress={handleBack} />
+          <InfoCard
+            title="Akses Ditolak"
+            description="Alumni tidak memiliki akses untuk fitur absensi."
+          />
+        </View>
+      </ScreenShell>
+    )
+  }
 
   return (
     <ScreenShell

@@ -6,11 +6,12 @@ export const DEFAULT_CLASSES = ["7 Banin", "7 Banat", "8 Banin", "8 Banat", "9 B
 const CUSTOM_CLASSES_KEY = "qrensi-custom-classes"
 const DELETED_CLASSES_KEY = "qrensi-deleted-classes"
 
-export const normalizeClassName = (value: string) =>
-  value
-    .trim()
-    .replace(/\s+/g, " ")
-    .replace(/\b\w/g, (char) => char.toUpperCase())
+export const normalizeClassName = (value: string) => {
+  let normalized = value.trim().replace(/\s+/g, " ")
+  normalized = normalized.replace(/^(\d+)([a-zA-Z])/, "$1 $2")
+  normalized = normalized.replace(/\b\w/g, (char) => char.toUpperCase())
+  return normalized
+}
 
 export const isSameClass = (left?: string | null, right?: string | null) =>
   normalizeClassName(String(left || "")).toLowerCase() ===
@@ -110,6 +111,11 @@ export const saveCustomClass = async (kelas: string) => {
     throw new Error("Nama kelas wajib diisi.")
   }
 
+  const match = normalized.match(/^(\d+)\s+(.+)$/)
+  if (!match) {
+    throw new Error("Format kelas harus diawali angka kelas diikuti nama kelas (contoh: 7 Banin)")
+  }
+
   const stored = await getStoredClasses()
   const next = mergeClasses(stored, [normalized])
   const deleted = (await getDeletedClasses()).filter((item) => item.toLowerCase() !== normalized.toLowerCase())
@@ -125,6 +131,11 @@ export const renameClass = async (oldClassName: string, newClassName: string) =>
 
   if (!oldNormalized || !newNormalized) {
     throw new Error("Nama kelas wajib diisi.")
+  }
+
+  const match = newNormalized.match(/^(\d+)\s+(.+)$/)
+  if (!match) {
+    throw new Error("Format kelas harus diawali angka kelas diikuti nama kelas (contoh: 7 Banin)")
   }
 
   if (oldNormalized.toLowerCase() === newNormalized.toLowerCase()) {
@@ -171,7 +182,7 @@ export const getAvailableClasses = async (profileClasses: Array<string | null | 
 
 export const getPromotedClass = (kelas: string) => {
   const normalized = normalizeClassName(kelas)
-  const match = normalized.match(/^([789])\s+(.+)$/)
+  const match = normalized.match(/^(\d+)\s+(.+)$/)
 
   if (!match) {
     return null
@@ -180,9 +191,7 @@ export const getPromotedClass = (kelas: string) => {
   const grade = Number(match[1])
   const group = match[2]
 
-  if (grade === 7) return `8 ${group}`
-  if (grade === 8) return `9 ${group}`
-  if (grade === 9) return "Alumni"
+  if (grade >= 9) return "Alumni"
 
-  return null
+  return `${grade + 1} ${group}`
 }

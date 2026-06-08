@@ -290,6 +290,12 @@ export default function DaftarHadir() {
         return
       }
 
+      const match = normalized.match(/^(\d+)\s+(.+)$/)
+      if (!match) {
+        Alert.alert("Gagal", "Format kelas harus diawali angka kelas diikuti nama kelas (contoh: 7 Banin)")
+        return
+      }
+
       if (
         kelasList.some(
           (item) =>
@@ -391,6 +397,18 @@ export default function DaftarHadir() {
                 if (updateError) throw updateError
               }
 
+              const uniquePromotedClasses = Array.from(
+                new Set(
+                  updates
+                    .map((item) => item.kelas)
+                    .filter((kelas): kelas is string => !!kelas && kelas !== "Alumni")
+                )
+              )
+
+              for (const kelas of uniquePromotedClasses) {
+                await saveCustomClass(kelas)
+              }
+
               await loadData()
               Alert.alert("Berhasil", `${updates.length} siswa berhasil diproses naik kelas.`)
             } catch (error: any) {
@@ -436,74 +454,59 @@ export default function DaftarHadir() {
     setSearchQuery("")
   }, [selectedKelas])
 
-  // Toggle status absensi dengan konfirmasi popup
+  // Toggle status absensi secara langsung
   const toggleStatus = async (uid:string,status:string) => {
     const user = profiles.find(u => u.id === uid)
     const existing = absensi.find(a => a.user_id === uid && a.tanggal === selectedDate)
     if(!user) return
 
-    // Konfirmasi popup
-    Alert.alert(
-      "Konfirmasi Absensi",
-      existing && existing.status === status
-        ? `Apakah Anda ingin menghapus status "${status}" untuk ${user.nama}?`
-        : `Apakah Anda yakin ingin mengubah status ke "${status}" untuk ${user.nama}?`,
-      [
-        { text: "Batal", style: "cancel" },
-        {
-          text: "Iya",
-          onPress: async () => {
-            try {
-              if(existing){
-                if(existing.status === status){
-                  // klik dua kali → hapus status
-                  await supabaseAdmin.from("absensi")
-                    .update({ status: null })
-                    .eq("user_id",uid)
-                    .eq("tanggal",selectedDate)
-                    .throwOnError()
+    try {
+      if(existing){
+        if(existing.status === status){
+          // klik dua kali → hapus status (null)
+          await supabaseAdmin.from("absensi")
+            .update({ status: null })
+            .eq("user_id",uid)
+            .eq("tanggal",selectedDate)
+            .throwOnError()
 
-                  setAbsensi(prev => prev.map(a =>
-                    a.user_id===uid && a.tanggal === selectedDate ? {...a,status:null} : a
-                  ))
-                } else {
-                  // update status baru
-                  await supabaseAdmin.from("absensi")
-                    .update({ status })
-                    .eq("user_id",uid)
-                    .eq("tanggal",selectedDate)
-                    .throwOnError()
+          setAbsensi(prev => prev.map(a =>
+            a.user_id===uid && a.tanggal === selectedDate ? {...a,status:null} : a
+          ))
+        } else {
+          // update status baru
+          await supabaseAdmin.from("absensi")
+            .update({ status })
+            .eq("user_id",uid)
+            .eq("tanggal",selectedDate)
+            .throwOnError()
 
-                  setAbsensi(prev => prev.map(a =>
-                    a.user_id===uid && a.tanggal === selectedDate ? {...a,status} : a
-                  ))
-                }
-              } else {
-                // insert baru
-                const { data:newData } = await supabaseAdmin.from("absensi").insert({
-                  user_id:uid,
-                  nama:user.nama,
-                  kelas:user.kelas,
-                  tanggal:selectedDate,
-                  status
-                }).select().single()
-
-                if(newData) {
-                  setAbsensi(prev => [...prev,newData])
-                  setAvailableDates(prev =>
-                    prev.includes(selectedDate)
-                      ? prev
-                      : [selectedDate, ...prev].sort((a,b) => b.localeCompare(a))
-                  )
-                }
-              }
-            } catch(err){
-              console.log(err)
-            }
-          }
+          setAbsensi(prev => prev.map(a =>
+            a.user_id===uid && a.tanggal === selectedDate ? {...a,status} : a
+          ))
         }
-      ]
-    )
+      } else {
+        // insert baru
+        const { data:newData } = await supabaseAdmin.from("absensi").insert({
+          user_id:uid,
+          nama:user.nama,
+          kelas:user.kelas,
+          tanggal:selectedDate,
+          status
+        }).select().single()
+
+        if(newData) {
+          setAbsensi(prev => [...prev,newData])
+          setAvailableDates(prev =>
+            prev.includes(selectedDate)
+              ? prev
+              : [selectedDate, ...prev].sort((a,b) => b.localeCompare(a))
+          )
+        }
+      }
+    } catch(err){
+      console.log(err)
+    }
   }
 
   const getStatus = (uid:string) => {
@@ -981,7 +984,12 @@ export default function DaftarHadir() {
                   <Picker
                     selectedValue={status || ""}
                     onValueChange={(value) => {
-                      if (!value || value === status) return
+                      if (value === "") {
+                        if (status) {
+                          toggleStatus(item.id, status)
+                        }
+                        return
+                      }
                       toggleStatus(item.id, String(value))
                     }}
                     mode="dropdown"

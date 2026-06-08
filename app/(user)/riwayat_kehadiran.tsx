@@ -38,6 +38,7 @@ type AttendanceStatus =
 
 export default function RiwayatKehadiran() {
   const [data, setData] = useState<AttendanceItem[]>([])
+  const [profile, setProfile] = useState<{ kelas: string } | null>(null)
   const [availableDates, setAvailableDates] = useState<string[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [calendarVisible, setCalendarVisible] = useState(false)
@@ -108,6 +109,19 @@ export default function RiwayatKehadiran() {
         return
       }
 
+      try {
+        const { data: profileData } = await supabase
+          .from("profiles")
+          .select("kelas")
+          .eq("id", userId)
+          .maybeSingle()
+        if (profileData) {
+          setProfile(profileData)
+        }
+      } catch (err) {
+        console.log("Gagal memuat profil di riwayat_kehadiran:", err)
+      }
+
       const { data: attendanceData, error } = await supabaseAdmin
         .from("absensi")
         .select("id, tanggal, status, waktu, created_at")
@@ -155,6 +169,7 @@ export default function RiwayatKehadiran() {
   useEffect(() => {
     getRiwayat()
     let subscription: any = null
+    let profileSubscription: any = null
 
     const setupRealtime = async () => {
       const { data: userData } = await supabase.auth.getUser()
@@ -176,12 +191,32 @@ export default function RiwayatKehadiran() {
           }
         )
         .subscribe()
+
+      profileSubscription = supabase
+        .channel(`public:profiles-history:${userId}`)
+        .on(
+          "postgres_changes",
+          {
+            event: "*",
+            schema: "public",
+            table: "profiles",
+            filter: `id=eq.${userId}`,
+          },
+          (payload) => {
+            const nextRow = payload.new as { kelas?: string } | undefined
+            if (nextRow) {
+              setProfile({ kelas: nextRow.kelas || "-" })
+            }
+          }
+        )
+        .subscribe()
     }
 
     setupRealtime()
 
     return () => {
       if (subscription) supabase.removeChannel(subscription)
+      if (profileSubscription) supabase.removeChannel(profileSubscription)
     }
   }, [getRiwayat])
 
@@ -290,6 +325,20 @@ export default function RiwayatKehadiran() {
     if (closeAfterSelect) {
       setCalendarVisible(false)
     }
+  }
+
+  if (profile?.kelas?.trim().toLowerCase() === "alumni") {
+    return (
+      <ScreenShell scroll footer={<UserBottomNav activeKey="riwayat_kehadiran" />}>
+        <View style={styles.shell}>
+          <PageHeader eyebrow="Kalender pribadi" title="Riwayat Kehadiran" onBackPress={handleBack} />
+          <InfoCard
+            title="Akses Ditolak"
+            description="Alumni tidak memiliki akses untuk fitur absensi."
+          />
+        </View>
+      </ScreenShell>
+    )
   }
 
   return (

@@ -547,6 +547,20 @@ export default function Ajuan() {
         ? styles.statusRejected
         : styles.statusPending;
 
+  if (user?.kelas?.trim().toLowerCase() === "alumni") {
+    return (
+      <ScreenShell scroll footer={<UserBottomNav activeKey="ajuan" />}>
+        <View style={styles.shell}>
+          <PageHeader eyebrow="Pengajuan siswa" title="Izin dan Sakit" onBackPress={handleBack} />
+          <InfoCard
+            title="Akses Ditolak"
+            description="Alumni tidak memiliki akses untuk pengajuan izin."
+          />
+        </View>
+      </ScreenShell>
+    )
+  }
+
   return (
     <ScreenShell
       scroll

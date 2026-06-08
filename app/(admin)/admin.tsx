@@ -51,7 +51,7 @@ export default function Admin() {
 
   const fetchCounts = useCallback(async () => {
     const [usersResult, submissionResult, pendingListResult] = await Promise.all([
-      supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "user"),
+      supabase.from("profiles").select("*", { count: "exact", head: true }).eq("role", "user").neq("kelas", "Alumni"),
       supabaseAdmin
         .from("pengajuan")
         .select("*", { count: "exact", head: true })
